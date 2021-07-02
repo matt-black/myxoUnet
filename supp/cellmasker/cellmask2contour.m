@@ -1,23 +1,28 @@
-function [ contour ] = cellmask2contour ( mask, fsmooth, ...
-                                          mesh_step, mesh_tol, mesh_width )
+function [ contour ] = cellmask2contour ( mask, fsmooth, mesh_step, mesh_tol, mesh_width )
 %CELLMASK2CONTOUR generate (rough) cell contour from mask of single cell
-
+    narginchk (1, 5);
+    if nargin == 1, fsmooth = []; end
     % trace out boundary of cell
     [ri,ci] = find (bwperim (mask), 1, 'first');
     boundry = bwtraceboundary (mask, [ri,ci], 'n', 4, Inf, 'counterclockwise');
     % smooth boundary in fourier space
-    if isempty (fsmooth)
+    if (isempty (fsmooth) || fsmooth == 0)
         fsmooth = size (boundry, 1) / 2;
     end
+    if fsmooth < 0, contour = boundry; return, end
     contour_prelim = ifdescp (frdescp (boundry), fsmooth);
-    % make mesh
-    mesh = model2MeshForRefine (contour_prelim, mesh_step, mesh_tol, mesh_width);
-    if length (mesh) > 4
-        contour = fliplr ([mesh(:,1:2); flipud(mesh(:,3:4))]);
+    if nargin > 2
+        % make mesh
+        mesh = model2MeshForRefine (contour_prelim, mesh_step, mesh_tol, mesh_width);
+        if length (mesh) > 4
+            contour = fliplr ([mesh(:,1:2); flipud(mesh(:,3:4))]);
+        else
+            contour = [];
+        end
+        contour = makeccw (contour);
     else
-        contour = [];
+        contour = makeccw (contour_prelim);
     end
-    contour = makeccw (contour);
 end
 
 function b = makeccw(a)

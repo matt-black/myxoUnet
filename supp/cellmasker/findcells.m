@@ -8,7 +8,7 @@ function cells = findcells(l, maskout, sm, maxl, minl, th)
     %           minl - Minimum cell length (hard cutoff). (I use 10).
     %           th - Brightthness threshold for cell ends (I use 0.3).
     
-    tstrt = tic;
+    %tstrt = tic;
 
     % Find the director field and image gradients for making strealines
 
@@ -51,13 +51,13 @@ function cells = findcells(l, maskout, sm, maxl, minl, th)
                     % masked out areas.
     
     % Some timer variables for code timing.
-    tl = 0;
-    tr = 0;
+    %tl = 0;
+    %tr = 0;
     
     while ~isempty(is)
         % Pick a random point on a cell body to find a cell through.
         i = randi(numel(is));
-        tic
+        %tic
         
         % Calculate a potential cell center line through point i.
         % Streamline function.
@@ -66,8 +66,8 @@ function cells = findcells(l, maskout, sm, maxl, minl, th)
         
         sline = sline(2:end-1,:);
         
-        tl = tl+toc;
-        tic
+        %tl = tl+toc;
+        %tic
         
         del = zeros(size(is));
 
@@ -95,13 +95,13 @@ function cells = findcells(l, maskout, sm, maxl, minl, th)
         end
         
         is(del==1) = []; % Remove accounted for test points from the list of pts to check.
-        tr = tr+toc;
+        %tr = tr+toc;
 
     end
 
     cells = cell2mat (cells);           % convert to struct array
 
-    toc(tstrt)
+    %toc(tstrt)
     
 %     for i = 1:numel(cells)
 %         cells{i}.fpath = fpath;
