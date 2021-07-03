@@ -1,5 +1,8 @@
-function [ rect ] = cropBoxFromCellEnds(xse, yse, pad)
-%CROPBOXFROMCELLENDS 
+function [ rect ] = cropBoxFromCellEnds(xse, yse, pad, square)
+%CROPBOXFROMCELLENDS
+    if nargin < 4
+        square = true;
+    end
     % figure out length and angle of cell
     cell_ang = atan2 (diff (yse), diff (xse));
     % add onto end
@@ -16,6 +19,10 @@ function [ rect ] = cropBoxFromCellEnds(xse, yse, pad)
     % figure out bounding box
     candx = [ext1(1), ext2(1), ext3(1), ext4(1)];
     candy = [ext1(2), ext2(2), ext3(2), ext4(2)];
-    rect = [min(candx), min(candy), range(candx), range(candy)];
+    if (square)
+        dim = max (range(candx), range(candy));
+        rect = [min(candx), min(candy), dim, dim];
+    else
+        rect = [min(candx), min(candy), range(candx), range(candy)];
+    end
 end
-
