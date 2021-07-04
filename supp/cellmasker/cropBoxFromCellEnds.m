@@ -20,9 +20,12 @@ function [ rect ] = cropBoxFromCellEnds(xse, yse, pad, square)
     candx = [ext1(1), ext2(1), ext3(1), ext4(1)];
     candy = [ext1(2), ext2(2), ext3(2), ext4(2)];
     if (square)
-        dim = max (range(candx), range(candy));
-        rect = [min(candx), min(candy), dim, dim];
+        dimx = max (range(candx), range(candy));
+        dimy = dimx;
     else
-        rect = [min(candx), min(candy), range(candx), range(candy)];
+        dimx = range (candx); dimy = range (candy);
     end
+    x0 = max (0, min (candx));
+    y0 = max (0, min (candy));
+    rect = [x0 y0 dimx dimy];
 end

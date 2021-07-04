@@ -12,6 +12,7 @@ function [ mask, cells ] = cells2mask ( cells, img_size, label, expand )
                                        cells(ic).pix(:,2));
         % convert r/c to linear index to assign
         ind = sub2ind (img_size, row, col);
+        ind(ind<1|isnan(ind)) = [];  % only want valid assignments
         mask(ind) = ic;
         cells(ic).id = ic;
     end
