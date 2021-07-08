@@ -285,23 +285,6 @@ function [contour, fitqual] = refineContour (im, E_dx, E_dy, thres, contour, cel
     % end
 end
 
-function [b] = makeccw (a)
-    if isempty (a)
-        b = [];
-    else
-        if ispolycw (a(:,1), a(:,2))
-            b = circshift2 (double (flipud (a)), 1);
-        else
-            b = a;
-        end
-    end
-end
-
-function [c] = circshift2 (a, b)
-    L = size (a, 1);
-    c = a(mod ((0:L-1)-b,L)+1,:);
-end
-
 function [F_x, F_y] = getRigidForcesL (img_x, img_y, wgt_vec)
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
