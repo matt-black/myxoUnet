@@ -4,4 +4,3 @@ function [ xy ] = global2cropCoords (xy, crop_box)
    xy(:,1) = xy(:,1) - crop_box(1);
    xy(:,2) = xy(:,2) - crop_box(2);
 end
-

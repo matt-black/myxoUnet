@@ -1,7 +1,10 @@
-function [ rect ] = cropBoxFromCellEnds(xse, yse, pad, square)
+function [ rect ] = cropBoxFromCellEnds(xse, yse, pad, square, img_sze)
 %CROPBOXFROMCELLENDS
-    if nargin < 4
-        square = true;
+    if nargin < 5
+        img_sze = [768 1024];
+        if nargin < 4
+            square = true;
+        end
     end
     % figure out length and angle of cell
     cell_ang = atan2 (diff (yse), diff (xse));
@@ -27,5 +30,12 @@ function [ rect ] = cropBoxFromCellEnds(xse, yse, pad, square)
     end
     x0 = max (0, min (candx));
     y0 = max (0, min (candy));
+    % check that crop box fits in image
+    if (x0 + dimx > img_sze(2))
+        dimx = img_sze(2) - x0;
+    end
+    if (y0 + dimx > img_sze(1))
+        dimy = img_sze(1) - y0;
+    end
     rect = [x0 y0 dimx dimy];
 end
