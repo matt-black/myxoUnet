@@ -1,5 +1,5 @@
 function [ varargout ] = maskFromCellSpine (cell_spine, img_size, cell_width)
-%UNTITLED6 Summary of this function goes here
+%MASKFROMCELLSPINE Summary of this function goes here
 %   Detailed explanation goes here
 
     dcell_spine = diff (cell_spine(1:end-1,:));
@@ -16,7 +16,8 @@ function [ varargout ] = maskFromCellSpine (cell_spine, img_size, cell_width)
 
     rect = vertcat (cell_spine(1,:), cell_spine(2:end-1,:)+uv1, ...
         cell_spine(end,:), flipud (cell_spine(2:end-1,:)+uv2));
-
+    kill = isnan (rect(:,1)) | isnan (rect(:,2));
+    rect(kill,:) = [];
     mask = poly2mask (rect(:,1), rect(:,2), img_size(1), img_size(2));
     
     varargout{1} = mask;
