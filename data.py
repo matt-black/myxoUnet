@@ -10,8 +10,9 @@ from torchvision import transforms
 from PIL import Image
 
 # other
+import numpy as np
 import pandas as pd
-
+import elasticdeform.torch as elastic
 
 class MaskDataset(torch.utils.data.Dataset):
     """
@@ -21,11 +22,12 @@ class MaskDataset(torch.utils.data.Dataset):
         self.msk_dir = os.path.join(base_dir, set_type, "msk")
         self.tbl = pd.read_csv(os.path.join(base_dir, 
                                             "{}.csv".format(set_type)))
-        if mask_type.lower() == "j4":
+        self.mask_type = mask_type.lower()
+        if self.mask_type == "j4":
             self.msk_fmt = "im{:03d}_j4.png"
-        elif mask_type.lower() == "j3":
+        elif self.mask_type == "j3":
             self.msk_fmt = "im{:03d}_j3.png"
-        elif mask_type.lower() == "ce":
+        elif self.mask_type == "ce":
             self.msk_fmt = "im{:03d}_cells.png"
         else:
             raise Exception("invalid mask type")
@@ -34,12 +36,15 @@ class MaskDataset(torch.utils.data.Dataset):
         return len(self.tbl.idx)
 
     def __getitem__(self, idx):
-        msk_trans = transforms.Compose([transforms.PILToTensor(), 
-                                        RgbLabelToMask()])
+        if self.mask_type == "ce"
+            msk_trans = transforms.Compose([transforms.PILToTensor(), 
+                                            RgbLabelToMask()])
+        else:
+            msk_trans = transforms.Compose([transforms.PILToTensor()])                
         img_trans = transforms.Compose([transforms.PILToTensor(),
                                         NormalizeInt32()])
         img = img_trans(self.get_image(idx))
-        msk = msk_trans(self.get_mask(idx))
+        
         return img, msk
     
     def get_image(self, idx):
@@ -51,6 +56,11 @@ class MaskDataset(torch.utils.data.Dataset):
         msk_name = self.msk_fmt.format(self.tbl.idx[idx])
         msk_path = os.path.join(self.msk_dir, msk_name)
         return Image.open(msk_path)
+
+
+class AugmentedMaskDataset(torch.utils.data.Dataset):
+    """
+    """
     
 
 class NormalizeInt32(object):
@@ -60,6 +70,19 @@ class NormalizeInt32(object):
         maxval = torch.max(pic).float()
         minval = torch.min(pic).float()
         return (pic.float() - minval) / (maxval - minval)
+    
+    def __repr__(self):
+        return self.__class__().__name__ + "()"
+    
+class RandomElasticDeformation(object):
+    """
+    """
+    def __init__(self, sigma=10, points=3):
+        self.sigma = sigma
+        self.shape = (2, points, points)
+    def __call__(self, img):
+        disp = torch.tensor(np.random.randn(*shape) * self.sigma)
+        return elastic.deform_grid(img, disp, order=3, mode='mirror')
     
     def __repr__(self):
         return self.__class__().__name__ + "()"
