@@ -17,12 +17,21 @@ import elasticdeform.torch as elastic
 class MaskDataset(torch.utils.data.Dataset):
     """
     """
-    def __init__(self, base_dir, set_type="train", mask_type="ce", transform=None):
+    def __init__(self, base_dir, set_type, mask_type="ce", 
+                 transform=None, nplicates=1):
+        # confirm input is ok
+        assert set_type in ("train", "test")
+        self.mask_type = mask_type.lower()
+        assert self.mask_type in ("ce", "j3", "j4")
+        # setup directory & table locations
         self.img_dir = os.path.join(base_dir, set_type, "img")
         self.msk_dir = os.path.join(base_dir, set_type, "msk")
         self.tbl = pd.read_csv(os.path.join(base_dir, 
                                             "{}.csv".format(set_type)))
-        self.mask_type = mask_type.lower()
+        # dataset length
+        self.n_img = len(self.tbl.idx)
+        self.nplicates = nplicates
+        # setup formatting for input masks
         if self.mask_type == "j4":
             self.msk_fmt = "im{:03d}_j4.png"
         elif self.mask_type == "j3":
@@ -31,17 +40,19 @@ class MaskDataset(torch.utils.data.Dataset):
             self.msk_fmt = "im{:03d}_cell.png"
         else:
             raise Exception("invalid mask type")
+        # image transforms
         self.to_tensor = transforms.PILToTensor()
         self.trans = transform
         
     def __len__(self):
-        return len(self.tbl.idx)
+        return self.n_img * self.nplicates
 
     def __getitem__(self, idx):
-        img = self.to_tensor(self.get_image(idx))
+        real_idx = idx % self.n_img
+        img = self.to_tensor(self.get_image(real_idx))
         maxval = img.max().float()
         minval = img.min().float()
-        mask = self.to_tensor(self.get_mask(idx))
+        mask = self.to_tensor(self.get_mask(real_idx))
         # apply transformations
         if self.trans is not None:
             comb = torch.cat([img, mask], dim=0)  # concat along channel dim

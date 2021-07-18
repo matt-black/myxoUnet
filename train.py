@@ -32,10 +32,7 @@ def main(**kwargs):
     if args.save_path is not None:
         if not os.path.isdir(args.save_path):
             os.mkdir(args.save_path)
-        # save args to file
-        with open(os.path.join(args.save_path, "args.json"), "w") as f:
-            json.dump(vars(args), f)
-    
+        
     # use cuda?
     use_cuda = torch.cuda.is_available() and (not args.no_cuda)
     device = torch.device("cuda" if use_cuda else "cpu")
@@ -59,22 +56,32 @@ def main(**kwargs):
                padding=args.unet_pad,
                batch_norm=args.unet_batchnorm,
                up_mode=args.unet_upmode)
-    
+    net = net.to(device)
+    # TODO: fix this so you actually know what size to pad with instead of
+    # just guessing until you find a good one
     if not args.unet_pad:
         # determine correct crop size, if applicable
-        test_inp = torch.randn(1, 1, args.crop_size, args.crop_size)
         out_size = 0
-        pad = 0
+        padval = 0
         while out_size < args.crop_size:
-            out_size = net(torch.randn(
-                1, 1, args.crop_size+pad, args.crop_size+pad)).size(-1)
-            pad = pad + 1
-        crop_dim = args.crop_size+pad
-        if crop_dim % 2 > 0:
-            crop_dim = crop_dim + 1
+            inp = torch.rand(1, 1, args.crop_size+pad_val, 
+                             args.crop_size+padval)
+            inp = inp.to(device)
+            out_size = net(inp).size(-1)
+            padval = padval + 2
+        if (args.crop_size+padval) % 2 > 0:
+            padval = padval + 1
+        crop_dim = args.crop_size + padval
+        args.input_pad = padval
     else:
         crop_dim = args.crop_size
+        args.input_pad = 0
 
+    # save input arguments to json file
+    if args.save_path is not None:
+        with open(os.path.join(args.save_path, "args.json"), "w") as f:
+            json.dump(vars(args), f)
+    
     # setup optimizer
     opt = optim.SGD(net.parameters(), args.learning_rate)
     
@@ -88,11 +95,12 @@ def main(**kwargs):
         transforms.RandomVerticalFlip(),
         RandomRotateDeformCrop(sigma=10, points=10, crop=crop_dim)])
     train_data = MaskDataset(args.data, "train", args.loss,
-                             transform=train_trans)
+                             transform=train_trans, nplicates=3)
     train_load = DataLoader(train_data, batch_size=args.batch_size, 
                             shuffle=True, **datakw)
     test_data = MaskDataset(args.data, "test", args.loss,
-                            transform=transforms.RandomCrop(crop_dim))
+                            transform=transforms.RandomCrop(crop_dim),
+                            nplicates=3)
     test_load = DataLoader(test_data, batch_size=args.batch_size,
                            shuffle=True, **datakw)
     
