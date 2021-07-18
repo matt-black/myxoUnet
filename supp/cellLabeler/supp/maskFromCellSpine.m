@@ -1,7 +1,7 @@
 function [ varargout ] = maskFromCellSpine (cell_spine, img_size, cell_width)
 %MASKFROMCELLSPINE Generate a mask of a cell from the spine
 %   assumes spherocylindrical shape
-    orig_spine = cell_spine;
+
     % resample spine
     resamp_dist = cell_width / 6;
     cell_spine = resampleCellSpine (cell_spine, resamp_dist);
@@ -36,11 +36,23 @@ function [ varargout ] = maskFromCellSpine (cell_spine, img_size, cell_width)
     rect(kill,:) = [];
     k = boundary (rect(:,1), rect(:,2), 0.8);
     mask = poly2mask (rect(:,1), rect(:,2), img_size(1), img_size(2));
+    % compute distance of each pixel mask to spine
+    dist = double (mask);
+    [y, x] = find (mask);
+    for idx = 1:numel(y)
+        coord = [x(idx), y(idx)];
+        distz = cellfun (@(x) sqrt(sum((x-coord).^2)), ...
+            num2cell (cell_spine, 2));
+        dist(y(idx),x(idx)) = min (distz(distz>0));
+    end
     varargout{1} = mask;
-    if (nargout > 1), varargout{2} = rect(k,:);
-        if (nargout > 2), varargout{3} = cell_spine; end
+    if (nargout > 1), varargout{2} = dist;
+        if (nargout > 2), varargout{3} = rect(k,:);
+            if (nargout > 3), varargout{4} = cell_spine; end
+        end
     end
 end
+
 
 function [ A ] = maskArea (mask)
     A = regionprops (mask, 'Area');
