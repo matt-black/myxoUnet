@@ -17,12 +17,10 @@ import elasticdeform.torch as elastic
 class MaskDataset(torch.utils.data.Dataset):
     """
     """
-    def __init__(self, base_dir, set_type, mask_type="ce", 
+    def __init__(self, base_dir, set_type, n_classes=2, 
                  transform=None, nplicates=1):
         # confirm input is ok
         assert set_type in ("train", "test")
-        self.mask_type = mask_type.lower()
-        assert self.mask_type in ("ce", "j3", "j4")
         # setup directory & table locations
         self.img_dir = os.path.join(base_dir, set_type, "img")
         self.msk_dir = os.path.join(base_dir, set_type, "msk")
@@ -32,14 +30,14 @@ class MaskDataset(torch.utils.data.Dataset):
         self.n_img = len(self.tbl.idx)
         self.nplicates = nplicates
         # setup formatting for input masks
-        if self.mask_type == "j4":
+        if n_classes == 4:
             self.msk_fmt = "im{:03d}_j4.png"
-        elif self.mask_type == "j3":
+        elif n_classes == 3:
             self.msk_fmt = "im{:03d}_j3.png"
-        elif self.mask_type == "ce":
+        elif n_classes == 2:
             self.msk_fmt = "im{:03d}_cell.png"
         else:
-            raise Exception("invalid mask type")
+            raise Exception("invalid mask number")
         # image transforms
         self.to_tensor = transforms.PILToTensor()
         self.trans = transform

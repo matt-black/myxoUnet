@@ -13,12 +13,14 @@ import argparse
 # pytorch
 import torch
 from torch import nn, optim
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.transforms.functional import center_crop
 
 from unet import UNet
 from data import MaskDataset, RandomRotateDeformCrop
+import loss
 
 def main(**kwargs):
     args = argparse.Namespace(**kwargs)
@@ -38,25 +40,27 @@ def main(**kwargs):
     device = torch.device("cuda" if use_cuda else "cpu")
     
     # make loss function
-    if args.loss == "j3":
-        n_class = 3
-        raise NotImplementedError()
-    elif args.loss == "j4":
-        n_class = 4
-        raise NotImplementedError()
-    else:
-        n_class = 2
+    if args.loss == "jreg":
+        crit = loss.JRegularizedCrossEntropyLoss()
+    elif args.loss == "ce":
         crit = nn.CrossEntropyLoss()
+    elif args.loss == "dice":
+        crit = loss.DiceLoss()
+    elif args.loss == "dsc":
+        crit = loss.DiceRegularizedCrossEntropy()
+    else:
+        raise ValueError("invalid loss")
     
     # setup UNet
     net = UNet(in_channels=1,
-               n_classes=n_class,
+               n_classes=args.num_classes,
                depth=args.unet_depth,
                wf=4,
                padding=args.unet_pad,
                batch_norm=args.unet_batchnorm,
                up_mode=args.unet_upmode)
     net = net.to(device)
+    
     # TODO: fix this so you actually know what size to pad with instead of
     # just guessing until you find a good one
     if not args.unet_pad:
@@ -64,7 +68,7 @@ def main(**kwargs):
         out_size = 0
         padval = 0
         while out_size < args.crop_size:
-            inp = torch.rand(1, 1, args.crop_size+pad_val, 
+            inp = torch.rand(1, 1, args.crop_size+padval, 
                              args.crop_size+padval)
             inp = inp.to(device)
             out_size = net(inp).size(-1)
@@ -83,24 +87,26 @@ def main(**kwargs):
             json.dump(vars(args), f)
     
     # setup optimizer
-    opt = optim.SGD(net.parameters(), args.learning_rate)
+    opt = optim.Adam(net.parameters(), args.learning_rate)
     
     # build up train/test datasets
     if not (os.path.isdir(args.data)):
         raise Exception("specified data directory doesn't exist")
     datakw = {"num_workers" : 1, "pin_memory" : True} if use_cuda else {}
-    
     train_trans = transforms.Compose([
         transforms.RandomHorizontalFlip(),
         transforms.RandomVerticalFlip(),
         RandomRotateDeformCrop(sigma=10, points=10, crop=crop_dim)])
-    train_data = MaskDataset(args.data, "train", args.loss,
-                             transform=train_trans, nplicates=3)
+    train_data = MaskDataset(args.data, "train", 
+                             args.num_classes,
+                             transform=train_trans, 
+                             nplicates=args.data_nplicates)
     train_load = DataLoader(train_data, batch_size=args.batch_size, 
                             shuffle=True, **datakw)
-    test_data = MaskDataset(args.data, "test", args.loss,
+    test_data = MaskDataset(args.data, "test", 
+                            args.num_classes,
                             transform=transforms.RandomCrop(crop_dim),
-                            nplicates=3)
+                            nplicates=args.data_nplicates)
     test_load = DataLoader(test_data, batch_size=args.batch_size,
                            shuffle=True, **datakw)
     
@@ -151,6 +157,7 @@ def train(data, model, criterion, optimizer, epoch, device, output_size,
         msk = msk.to(device)
         # computation
         out = model(img)
+        out = F.softmax(out, dim=1)
         loss = criterion(out, msk)
         # gradient/SGD step
         optimizer.zero_grad()
@@ -183,6 +190,7 @@ def test(data, model, criterion, epoch, device, output_size, prog_disp=1):
             msk = msk.to(device)
             # computation
             out = model(img)
+            out = F.softmax(out, dim=1)
             loss = criterion(out, msk)
             # record
             avgloss.update(loss.item(), img.size(0))
@@ -283,10 +291,14 @@ if __name__ == "__main__":
     # data/loss parameters
     parser.add_argument("-d", "--data", type=str, help="path to data folder")
     parser.add_argument("-l", "--loss", type=str, default="ce",
-                        choices=["j3", "j4", "ce"],
+                        choices=["jreg", "ce", "dice", "dsc"],
                         help="type of loss function")
-    parser.add_argument("-c", "--crop-size", type=int, default=256,
+    parser.add_argument("-c", "--num-classes", type=int, default=2,
+                        choices=[2,3,4], help="number of semantic classes")
+    parser.add_argument("-cs", "--crop-size", type=int, default=256,
                         help="size of region to crop from original images")
+    parser.add_argument("-dn", "--data-nplicates", type=int, default=1,
+                        help="number of times to replicate base data in dataset")
     # training/optimization parameters
     parser.add_argument("-lr", "--learning-rate", type=float, default=1e-4,
                         help="learning rate")
