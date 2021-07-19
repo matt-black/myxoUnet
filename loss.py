@@ -5,23 +5,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-
-def one_hot(labels, num_class, device, dtype, eps=1e-6):
-    """convert tensor of class labels to one-hot encoding
-    
-    NOTE: more-or-less ripped from PyTorch geometry
-    """
-    # input integrity
-    if not len(labels.shape) == 3:
-        raise ValueError(
-            "invalid label shape, should be BxHxW. Got {}".format(
-            labels.size()))
-    if not labels.dtype == torch.int64:
-        raise TypeError("labels must be type torch.int64 (Long)")
-    batch_size, num_row, num_col = labels.size()
-    one_hot = torch.zeros(batch_size, num_class, num_row, num_col,
-                          device=device, dtype=dtype)
-    return one_hot.scatter_(1, labels.unsqueeze(1), 1.0) + eps
+from util import one_hot
 
 
 class DiceLoss(nn.Module):

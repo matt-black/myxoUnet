@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import elasticdeform.torch as elastic
 
+
 class MaskDataset(torch.utils.data.Dataset):
     """
     """

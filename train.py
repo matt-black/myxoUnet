@@ -37,6 +37,8 @@ def main(**kwargs):
         fldr_name = "{d}_{l}".format(d=date.today().strftime("%Y-%m-%d"),
                                      l=args.loss)
         args.save_path = os.path.join(os.getcwd(), fldr_name)
+    else:
+        args.save_path = None
     if args.save_path is not None:
         if not os.path.isdir(args.save_path):
             os.mkdir(args.save_path)
@@ -49,7 +51,7 @@ def main(**kwargs):
     net = UNet(in_channels=1,
                n_classes=args.num_classes,
                depth=args.unet_depth,
-               wf=4,
+               wf=args.unet_wf,
                padding=args.unet_pad,
                batch_norm=args.unet_batchnorm,
                up_mode=args.unet_upmode)
@@ -143,11 +145,11 @@ def main(**kwargs):
     # write losses to csv file
     if args.save_path is not None:
         with open(os.path.join(args.save_path, "losses.csv"), "w") as loss_csv:
-            fieldnames = ["train", "test"]
+            fieldnames = ["epoch", "train", "test"]
             writer = csv.DictWriter(loss_csv, fieldnames=fieldnames)
             writer.writeheader()
-            for tr, te in zip(train_losses, test_losses):
-                writer.writerow({"train" : tr, "test" : te})
+            for ep, (tr, te) in enumerate (zip(train_losses, test_losses)):
+                writer.writerow({"epoch" : ep, "train" : tr, "test" : te})
     
     return 0
 
@@ -277,12 +279,29 @@ class ProgressShower(object):
 def save_checkpoint(filepath, model, optimizer, epoch):
     """Save checkpoint to file
     """
-    chckpt = {"model" : model, 
-              "optimizer" : optimizer, 
+    chckpt = {"model" : model.state_dict(), 
+              "optimizer" : optimizer.state_dict(), 
               "epoch" : epoch}
     torch.save(chckpt, filepath)
+
     
-    
+def load_checkpoint(filepath, argz):
+    chkpt = torch.load(filepath)
+    # initialize network
+    net = UNet(in_channels=1,
+               n_classes=argz.num_classes,
+               depth=argz.unet_depth,
+               wf=argz.unet_wf,
+               padding=argz.unet_pad,
+               batch_norm=argz.unet_batchnorm,
+               up_mode=argz.unet_upmode)
+    net.load_state_dict(chkpt["model"])
+    # initialize optimizer
+    opt = optim.Adam(net.parameters(), lr=argz.learning_rate)
+    opt.load_state_dict(chkpt["optimizer"])
+    return net, opt
+
+            
 if __name__ == "__main__":
     """command line UI
     """
@@ -308,6 +327,8 @@ if __name__ == "__main__":
     # unet parameters
     parser.add_argument("-ud", "--unet-depth", type=int, default=3,
                         help="depth of the UNet")
+    parser.add_argument("-uf", "--unet-wf", type=int, default=4,
+                        help="log2 number of filters in first layer")
     parser.add_argument("-up", "--unet-pad", action="store_true", default=False,
                         help="use padding in UNet so input matches output size")
     parser.add_argument("-ub", "--unet-batchnorm", action="store_true", 
