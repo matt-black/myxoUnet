@@ -39,18 +39,6 @@ def main(**kwargs):
     use_cuda = torch.cuda.is_available() and (not args.no_cuda)
     device = torch.device("cuda" if use_cuda else "cpu")
     
-    # make loss function
-    if args.loss == "jreg":
-        crit = loss.JRegularizedCrossEntropyLoss()
-    elif args.loss == "ce":
-        crit = nn.CrossEntropyLoss()
-    elif args.loss == "dice":
-        crit = loss.DiceLoss()
-    elif args.loss == "dsc":
-        crit = loss.DiceRegularizedCrossEntropy()
-    else:
-        raise ValueError("invalid loss")
-    
     # setup UNet
     net = UNet(in_channels=1,
                n_classes=args.num_classes,
@@ -80,15 +68,7 @@ def main(**kwargs):
     else:
         crop_dim = args.crop_size
         args.input_pad = 0
-
-    # save input arguments to json file
-    if args.save_path is not None:
-        with open(os.path.join(args.save_path, "args.json"), "w") as f:
-            json.dump(vars(args), f)
-    
-    # setup optimizer
-    opt = optim.Adam(net.parameters(), args.learning_rate)
-    
+        
     # build up train/test datasets
     if not (os.path.isdir(args.data)):
         raise Exception("specified data directory doesn't exist")
@@ -109,6 +89,33 @@ def main(**kwargs):
                             nplicates=args.data_nplicates)
     test_load = DataLoader(test_data, batch_size=args.batch_size,
                            shuffle=True, **datakw)
+    
+    
+    # make loss function
+    if args.loss == "jreg":
+        crit = loss.JRegularizedCrossEntropyLoss()
+    elif args.loss == "ce":
+        crit = nn.CrossEntropyLoss()
+    elif args.loss == "wce":
+        # weight by class imbalance
+        pct = train_data.class_percents()
+        class_wgt = (100.0 - pct).to(device)
+        crit = nn.CrossEntropyLoss(class_wgt)
+    elif args.loss == "dice":
+        crit = loss.DiceLoss()
+    elif args.loss == "dsc":
+        crit = loss.DiceRegularizedCrossEntropy()
+    else:
+        raise ValueError("invalid loss")
+    
+
+    # save input arguments to json file
+    if args.save_path is not None:
+        with open(os.path.join(args.save_path, "args.json"), "w") as f:
+            json.dump(vars(args), f)
+    
+    # setup optimizer
+    opt = optim.Adam(net.parameters(), args.learning_rate)
     
     # epoch loop
     min_test_loss = inf
@@ -202,19 +209,6 @@ def test(data, model, criterion, epoch, device, output_size, prog_disp=1):
     return avgloss.avg
 
 
-def reqd_input_dim(output_dim, depth, kernel_size=3):
-    """Determine required input size to match desired output dimension
-    if no padding used in UNet
-    """
-    orig_dim = output_dim
-    for l in range(depth):
-        # each layer has 2 convolutions
-        for c in range(2):
-            output_dim = _conv2d_output_size(output_dim, stride=1, padding=0,
-                                             dilation=1, kernel_size=kernel_size)
-    return output_dim
-
-
 def _conv2d_output_size(dim_in, stride=1, padding=0,
                         dilation=1, kernel_size=3):
     return (dim_in + 2 * padding - dilation * (kernel_size - 1) - 1) / \
@@ -291,7 +285,7 @@ if __name__ == "__main__":
     # data/loss parameters
     parser.add_argument("-d", "--data", type=str, help="path to data folder")
     parser.add_argument("-l", "--loss", type=str, default="ce",
-                        choices=["jreg", "ce", "dice", "dsc"],
+                        choices=["jreg", "wce", "ce", "dice", "dsc"],
                         help="type of loss function")
     parser.add_argument("-c", "--num-classes", type=int, default=2,
                         choices=[2,3,4], help="number of semantic classes")

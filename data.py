@@ -28,6 +28,7 @@ class MaskDataset(torch.utils.data.Dataset):
                                             "{}.csv".format(set_type)))
         # dataset length
         self.n_img = len(self.tbl.idx)
+        self.n_class = n_classes
         self.nplicates = nplicates
         # setup formatting for input masks
         if n_classes == 4:
@@ -47,10 +48,10 @@ class MaskDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         real_idx = idx % self.n_img
-        img = self.to_tensor(self.get_image(real_idx))
+        img = self.to_tensor(self._get_image(real_idx))
         maxval = img.max().float()
         minval = img.min().float()
-        mask = self.to_tensor(self.get_mask(real_idx))
+        mask = self.to_tensor(self._get_mask(real_idx))
         # apply transformations
         if self.trans is not None:
             comb = torch.cat([img, mask], dim=0)  # concat along channel dim
@@ -60,15 +61,27 @@ class MaskDataset(torch.utils.data.Dataset):
         img = (img.float() - minval) / (maxval - minval)
         return img, mask.long()
     
-    def get_image(self, idx):
+    def _get_image(self, idx):
         img_path = os.path.join(self.img_dir,
                                 "im{:03d}.png".format(self.tbl.idx[idx]))
         return Image.open(img_path)
     
-    def get_mask(self, idx):
+    def _get_mask(self, idx):
         msk_name = self.msk_fmt.format(self.tbl.idx[idx])
         msk_path = os.path.join(self.msk_dir, msk_name)
         return Image.open(msk_path)
+    
+    def class_percents(self):
+        """Compute percentage of each class making up dataset
+        """
+        class_tot = [0 for i in range(self.n_class)]
+        total_pix = 0
+        for idx in range(self.n_img):
+            msk = self.to_tensor(self._get_mask(idx))
+            total_pix += torch.mul(msk.shape[-2], msk.shape[-1])
+            for ci in range(self.n_class):
+                class_tot[ci] += (msk == ci).sum()
+        return torch.stack(class_tot) / total_pix * 100
 
 
 def split_imgmask(img_mask_tensor):
@@ -121,7 +134,6 @@ class RandomRotateDeformCrop(object):
 
     def __call__(self, img):
         # figure out crop parameters
-        crp_tup = (self.crop_size, self.crop_size)
         crop_par = transforms.RandomCrop.get_params(
             img, (self.crop_size, self.crop_size))
         crop_slcs = [slice(crop_par[0], crop_par[0]+crop_par[2]),
