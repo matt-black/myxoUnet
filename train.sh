@@ -13,5 +13,8 @@ module purge
 module load anaconda3/2020.11
 conda activate pyt
 
-python train.py --data="./supp/test" --loss="ce" --learning-rate=.0001 \
-       --batch-size=1 --epochs=10 --print-freq=1 --save-path="model.pth"
+python train.py --data="./supp/test" --loss="ce" --num-classes=4 \
+       --crop-size=256 --data-nplicates=12 \
+       --learning-rate=.0001 --batch-size=12 --epochs=10 \
+       --unet-depth=3 --unet-batchnorm --unet-upmode="upconv" \
+       --print-freq=1 --save

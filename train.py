@@ -6,6 +6,7 @@ import os
 import csv
 import json
 from math import inf
+from datetime import date
 import time
 import random
 import argparse
@@ -31,6 +32,11 @@ def main(**kwargs):
         torch.manual_seed(args.seed)
         
     # setup output folder
+    if args.save:
+        # generate output path
+        fldr_name = "{d}_{l}".format(d=date.today().strftime("%Y-%m-%d"),
+                                     l=args.loss)
+        args.save_path = os.path.join(os.getcwd(), fldr_name)
     if args.save_path is not None:
         if not os.path.isdir(args.save_path):
             os.mkdir(args.save_path)
@@ -90,7 +96,6 @@ def main(**kwargs):
     test_load = DataLoader(test_data, batch_size=args.batch_size,
                            shuffle=True, **datakw)
     
-    
     # make loss function
     if args.loss == "jreg":
         crit = loss.JRegularizedCrossEntropyLoss()
@@ -99,7 +104,7 @@ def main(**kwargs):
     elif args.loss == "wce":
         # weight by class imbalance
         pct = train_data.class_percents()
-        class_wgt = (100.0 - pct).to(device)
+        class_wgt = (1.0 - pct/100).to(device)
         crit = nn.CrossEntropyLoss(class_wgt)
     elif args.loss == "dice":
         crit = loss.DiceLoss()
@@ -318,8 +323,8 @@ if __name__ == "__main__":
                         help="frequency to show progress during training")
     parser.add_argument("-nc", "--no-cuda", action="store_true",
                         default=False, help="disable CUDA")
-    parser.add_argument("-sp", "--save-path", type=str, default=None,
-                        help="directory to save training stats/models to")
+    parser.add_argument("-sv", "--save", action="store_true",
+                        help="save training stats/models to directory")
     
     ec = main(**vars(parser.parse_args()))
     exit(ec)
