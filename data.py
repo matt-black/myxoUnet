@@ -19,7 +19,7 @@ class MaskDataset(torch.utils.data.Dataset):
     """
     """
     def __init__(self, base_dir, set_type, n_classes=2, 
-                 transform=None, nplicates=1):
+                 transform=None, nplicates=1, stat_norm=True):
         # confirm input is ok
         assert set_type in ("train", "test")
         # setup directory & table locations
@@ -31,6 +31,7 @@ class MaskDataset(torch.utils.data.Dataset):
         self.n_img = len(self.tbl.idx)
         self.n_class = n_classes
         self.nplicates = nplicates
+        self.stat_norm = stat_norm  # should we normalize by mean/std?
         # setup formatting for input masks
         if n_classes == 4:
             self.msk_fmt = "im{:03d}_j4.png"
@@ -50,16 +51,21 @@ class MaskDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         real_idx = idx % self.n_img
         img = self.to_tensor(self._get_image(real_idx))
-        maxval = img.max().float()
-        minval = img.min().float()
+        if self.stat_norm:
+            subval = img.float().mean()
+            denom = img.float().std()
+        else:
+            subval = img.min().float()
+            denom = img.max().float() - subval
+            
         mask = self.to_tensor(self._get_mask(real_idx))
         # apply transformations
         if self.trans is not None:
             comb = torch.cat([img, mask], dim=0)  # concat along channel dim
             comb = self.trans(comb)
             img, mask = split_imgmask(comb)
-        # normalize to [0, 1] in range of entire image
-        img = (img.float() - minval) / (maxval - minval)
+        # normalize image and return
+        img = (img.float() - subval) / denom
         return img, mask.long()
     
     def _get_image(self, idx):

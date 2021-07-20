@@ -60,17 +60,18 @@ def main(**kwargs):
     # TODO: fix this so you actually know what size to pad with instead of
     # just guessing until you find a good one
     if not args.unet_pad:
-        # determine correct crop size, if applicable
-        out_size = 0
-        padval = 0
-        while out_size < args.crop_size:
-            inp = torch.rand(1, 1, args.crop_size+padval, 
-                             args.crop_size+padval)
-            inp = inp.to(device)
-            out_size = net(inp).size(-1)
-            padval = padval + 2
-        if (args.crop_size+padval) % 2 > 0:
-            padval = padval + 1
+        inp = torch.rand(1, 1, args.crop_size, args.crop_size).to(device)
+        out_sze = net(inp).size(-1)
+        padval = args.crop_size - out_sze
+        # now try and see if it works
+        inp = torch.rand(1, 1, args.crop_size+padval, 
+                         args.crop_size+padval).to(device)
+        out_sze = net(inp).size(-1)
+        # if sizes dont match, tell user to try again
+        if out_sze != args.crop_size:
+            raise ValueError(
+                "crop size isnt valid with specified network structure")
+        # if we got here, then the padding is ok
         crop_dim = args.crop_size + padval
         args.input_pad = padval
     else:
@@ -88,13 +89,15 @@ def main(**kwargs):
     train_data = MaskDataset(args.data, "train", 
                              args.num_classes,
                              transform=train_trans, 
-                             nplicates=args.data_nplicates)
+                             nplicates=args.data_nplicates,
+                             stat_norm=args.data_statnorm)
     train_load = DataLoader(train_data, batch_size=args.batch_size, 
                             shuffle=True, **datakw)
     test_data = MaskDataset(args.data, "test", 
                             args.num_classes,
                             transform=transforms.RandomCrop(crop_dim),
-                            nplicates=args.data_nplicates)
+                            nplicates=args.data_nplicates,
+                            stat_norm=args.data_statnorm)
     test_load = DataLoader(test_data, batch_size=args.batch_size,
                            shuffle=True, **datakw)
     
@@ -115,14 +118,16 @@ def main(**kwargs):
     else:
         raise ValueError("invalid loss")
     
-
     # save input arguments to json file
     if args.save_path is not None:
         with open(os.path.join(args.save_path, "args.json"), "w") as f:
             json.dump(vars(args), f)
     
     # setup optimizer
-    opt = optim.Adam(net.parameters(), args.learning_rate)
+    if args.sgd:
+        opt = optim.SGD(net.parameters(), lr=args.learning_rate)
+    else:
+        opt = optim.Adam(net.parameters(), args.learning_rate)
     
     # epoch loop
     min_test_loss = inf
@@ -286,8 +291,12 @@ def save_checkpoint(filepath, model, optimizer, epoch):
 
     
 def load_checkpoint(filepath, argz):
-    chkpt = torch.load(filepath)
-    # initialize network
+    if torch.cuda.is_available():
+        chkpt = torch.load(filepath)
+    else:
+        chkpt = torch.load(filepath, map_location=torch.device("cpu"))
+        
+    # initialize network/optimizer
     net = UNet(in_channels=1,
                n_classes=argz.num_classes,
                depth=argz.unet_depth,
@@ -295,9 +304,12 @@ def load_checkpoint(filepath, argz):
                padding=argz.unet_pad,
                batch_norm=argz.unet_batchnorm,
                up_mode=argz.unet_upmode)
+    if argz.sgd:
+        opt = optim.SGD(net.parameters(), lr=argz.learning_rate)
+    else:
+        opt = optim.Adam(net.parameters(), lr=argz.learning_rate)
+    # load params from checkpoint
     net.load_state_dict(chkpt["model"])
-    # initialize optimizer
-    opt = optim.Adam(net.parameters(), lr=argz.learning_rate)
     opt.load_state_dict(chkpt["optimizer"])
     return net, opt
 
@@ -307,7 +319,8 @@ if __name__ == "__main__":
     """
     parser = argparse.ArgumentParser(description="UNet training script")
     # data/loss parameters
-    parser.add_argument("-d", "--data", type=str, help="path to data folder")
+    parser.add_argument("-d", "--data", type=str, required=True,
+                        help="path to data folder")
     parser.add_argument("-l", "--loss", type=str, default="ce",
                         choices=["jreg", "wce", "ce", "dice", "dsc"],
                         help="type of loss function")
@@ -317,6 +330,11 @@ if __name__ == "__main__":
                         help="size of region to crop from original images")
     parser.add_argument("-dn", "--data-nplicates", type=int, default=1,
                         help="number of times to replicate base data in dataset")
+    parser.add_argument("-ds", "--data-statnorm",
+                        action="store_true", default=True,
+                        help="normalize images by mean/std instead of just [0,1]")
+    parser.add_argument("--sgd", action="store_true", default=False,
+                        help="use SGD instead of Adam")
     # training/optimization parameters
     parser.add_argument("-lr", "--learning-rate", type=float, default=1e-4,
                         help="learning rate")
