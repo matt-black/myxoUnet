@@ -87,6 +87,11 @@ def overlap_tile(img, net, crop_size, pad_size):
     return pred
 
 
+def process_image(img, net):
+    dev = next(net.parameters()).device
+    pred = F.softmax(net(img), dim=1)
+    return pred
+
 def truefalse_posneg_stats(y_true, y_pred, num_class):
     # convert truth mask to one-hot
     if len(y_true.shape) == 2:

@@ -2,6 +2,8 @@
 2021*
 supp/stream_data/*
 supp/test/*
+expts/*
+*.mat
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,matlab,emacs
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,matlab,emacs

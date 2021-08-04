@@ -20,7 +20,8 @@ from torchvision import transforms
 from torchvision.transforms.functional import center_crop
 
 from unet import UNet
-from data import MaskDataset, RandomRotateDeformCrop
+from data import MaskDataset, SizeScaledMaskDataset
+from data import RandomRotateDeformCrop
 import loss
 
 def main(**kwargs):
@@ -86,17 +87,17 @@ def main(**kwargs):
         transforms.RandomHorizontalFlip(),
         transforms.RandomVerticalFlip(),
         RandomRotateDeformCrop(sigma=10, points=10, crop=crop_dim)])
-    train_data = MaskDataset(args.data, "train", 
+    train_data = SizeScaledMaskDataset(args.data, "train", 
                              args.num_classes,
+                             crop_dim=crop_dim, 
                              transform=train_trans, 
-                             nplicates=args.data_nplicates,
                              stat_norm=args.data_statnorm)
     train_load = DataLoader(train_data, batch_size=args.batch_size, 
                             shuffle=True, **datakw)
-    test_data = MaskDataset(args.data, "test", 
+    test_data = SizeScaledMaskDataset(args.data, "test", 
                             args.num_classes,
+                            crop_dim=crop_dim,
                             transform=transforms.RandomCrop(crop_dim),
-                            nplicates=args.data_nplicates,
                             stat_norm=args.data_statnorm)
     test_load = DataLoader(test_data, batch_size=args.batch_size,
                            shuffle=True, **datakw)

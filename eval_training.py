@@ -22,7 +22,7 @@ from util import overlap_tile, truefalse_posneg_stats
 parser = argparse.ArgumentParser(description="UNet training evaluation script")
 
 parser.add_argument("-f", "--folder", type=str,
-                    default="./expts/stat_norm/2021-07-20_jreg_adam_200e", 
+                    default="./expts/2021-07-28_wce", 
                     help="path to training output folder")
 parser.add_argument("-d", "--data", type=str, 
                     default=None,
@@ -56,7 +56,7 @@ data = MaskDataset(data_path, "train", train_args.num_classes,
                    stat_norm=train_args.data_statnorm)
 
 # %% overlap tiling
-img, msk = data.__getitem__(1)
+img, msk = data.__getitem__(4)
 pred = overlap_tile(img.unsqueeze(1), net, 
                     train_args.crop_size, train_args.input_pad)
 # (tp,fp), (tn,fn) = truefalse_posneg_stats(msk, pred, 2)
