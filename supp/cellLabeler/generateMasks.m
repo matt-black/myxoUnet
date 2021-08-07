@@ -6,8 +6,13 @@ function [ varargout ] = generateMasks ( cell_list, img_size, cell_width, ...
     lbl_mask = zeros (img_size);
     dist_mask = zeros (img_size);
     for ii = 1:numel(cell_list)
-        [this_cell, this_dist] = maskFromCellSpine (cell_list(ii).refined, ...
-            img_size, cell_width);
+        try
+            [this_cell, this_dist] = maskFromCellSpine (cell_list(ii).refined, ...
+                                                        img_size, cell_width);
+        catch
+            fprintf ('error while making cell %d\n', ii)
+            continue
+        end
         % zeros in mask get colored, keep this distance
         [r, c] = find (this_cell & not (lbl_mask));
         indz = sub2ind (img_size, r, c);
