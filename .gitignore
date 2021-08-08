@@ -2,6 +2,7 @@
 2021*
 supp/stream_data/*
 supp/test/*
+supp/testkc/*
 expts/*
 *.mat
 

@@ -43,6 +43,10 @@ def main(**kwargs):
     if args.save_path is not None:
         if not os.path.isdir(args.save_path):
             os.mkdir(args.save_path)
+        else:  # folder exists, add random int to end so we don't get overla
+            args.save_path = args.save_path + "_" + \
+                "{:d}".format(random.randint(1,1000))
+            os.mkdir(args.save_path)
         
     # use cuda?
     use_cuda = torch.cuda.is_available() and (not args.no_cuda)
@@ -86,7 +90,7 @@ def main(**kwargs):
     train_trans = transforms.Compose([
         transforms.RandomHorizontalFlip(),
         transforms.RandomVerticalFlip(),
-        RandomRotateDeformCrop(sigma=10, points=10, crop=crop_dim)])
+        RandomRotateDeformCrop(sigma=5, points=5, crop=crop_dim)])
     train_data = SizeScaledMaskDataset(args.data, "train", 
                              args.num_classes,
                              crop_dim=crop_dim, 
