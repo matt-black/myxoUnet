@@ -48,7 +48,7 @@ def one_hot(labels, num_class, device, dtype, eps=1e-6):
     return one_hot.scatter_(1, labels.unsqueeze(1), 1.0) + eps
 
 
-def overlap_tile(img, net, crop_size, pad_size):
+def overlap_tile(img, net, crop_size, pad_size, tile_norm="none"):
     """
     predict segmentation of `img` using the overlap-tile strategy
 
@@ -71,17 +71,36 @@ def overlap_tile(img, net, crop_size, pad_size):
     """
     assert img.shape[-2] % crop_size == 0
     assert img.shape[-1] % crop_size == 0
+    # unsqueeze image to make it work
+    if len(img.shape) == 2:
+        img = img.unsqueeze(0).unsqueeze(0)
+    elif len(img).shape == 3:
+        img = img.unsqueeze(0)
+    
     # figure out which device stuff is on
     dev = next(net.parameters()).device
     # pad input image
     img_pad = TF.pad(img, [pad_size, pad_size], padding_mode='reflect')
-    tile_size = crop_size + pad_size  # size of tiles input to network
-    
+    tile_size = crop_size + 2*pad_size  # size of tiles input to network
+
     pred = torch.zeros(img.shape[-2], img.shape[-1], dtype=torch.int64,
                        device=dev)
     for r in range(0, img.shape[-2], crop_size):
         for c in range(0, img.shape[-1], crop_size):
-            tile = TF.crop(img_pad, r, c, tile_size, tile_size)
+            # adjust for padding size, then crop out tile
+            rc = r if r > 0 else r
+            cc = c if c > 0 else c
+            tile = TF.crop(img_pad, rc, cc, tile_size, tile_size)
+            # do normalization at tile-level, if specified
+            if tile_norm != "none":
+                if tile_norm == "stat":
+                    subval = tile.float().mean()
+                    denom = tile.float().std()
+                elif tile_norm == "simp":
+                    subval = tile.min().float()
+                    denom = tile.max().float() - subval
+                tile = (tile.float() - subval) / denom
+            # run tile through net, add it to crop
             tile_pred = F.softmax(net(tile), dim=1)
             pred[r:r+crop_size,c:c+crop_size] = torch.argmax(tile_pred, dim=1)
     return pred
