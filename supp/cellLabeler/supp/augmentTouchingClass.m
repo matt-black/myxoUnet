@@ -5,5 +5,5 @@ function [ aug_mask ] = augmentTouchingClass ( cell_mask, se )
     gp = imdilate (gp, se);
     aug_mask = cell_mask + (max (cell_mask)+1) .* gp;
     aug_mask(aug_mask>1) = 2;
+    aug_mask(cell_mask==1) = 1;
 end
-
