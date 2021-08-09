@@ -49,7 +49,7 @@ def dice_loss(pred, target, reduction="mean", eps=1e-6):
     elif reduction == "sum":
         return torch.sum(1.0 - dice)
     else:
-        return dice
+        return (1.0 - dice)
     
 class DiceRegularizedCrossEntropy(nn.Module):
     
