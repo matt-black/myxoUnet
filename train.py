@@ -20,7 +20,8 @@ from torchvision import transforms
 from torchvision.transforms.functional import center_crop
 
 from unet import UNet
-from data import MaskDataset, RandomRotateDeformCrop
+from data import MaskDataset, SizeScaledMaskDataset
+from data import RandomRotateDeformCrop
 import loss
 
 def main(**kwargs):
@@ -41,6 +42,10 @@ def main(**kwargs):
         args.save_path = None
     if args.save_path is not None:
         if not os.path.isdir(args.save_path):
+            os.mkdir(args.save_path)
+        else:  # folder exists, add random int to end so we don't get overla
+            args.save_path = args.save_path + "_" + \
+                "{:d}".format(random.randint(1,1000))
             os.mkdir(args.save_path)
         
     # use cuda?
@@ -85,25 +90,30 @@ def main(**kwargs):
     train_trans = transforms.Compose([
         transforms.RandomHorizontalFlip(),
         transforms.RandomVerticalFlip(),
-        RandomRotateDeformCrop(sigma=10, points=10, crop=crop_dim)])
-    train_data = MaskDataset(args.data, "train", 
+        RandomRotateDeformCrop(sigma=5, points=5, crop=crop_dim)])
+    train_data = SizeScaledMaskDataset(args.data, "train", 
                              args.num_classes,
+                             crop_dim=crop_dim, 
                              transform=train_trans, 
-                             nplicates=args.data_nplicates,
                              stat_norm=args.data_statnorm)
     train_load = DataLoader(train_data, batch_size=args.batch_size, 
                             shuffle=True, **datakw)
-    test_data = MaskDataset(args.data, "test", 
+    test_data = SizeScaledMaskDataset(args.data, "test", 
                             args.num_classes,
+                            crop_dim=crop_dim,
                             transform=transforms.RandomCrop(crop_dim),
-                            nplicates=args.data_nplicates,
                             stat_norm=args.data_statnorm)
     test_load = DataLoader(test_data, batch_size=args.batch_size,
                            shuffle=True, **datakw)
     
     # make loss function
-    if args.loss == "jreg":
+    if args.loss == "jrce":
         crit = loss.JRegularizedCrossEntropyLoss()
+    elif args.loss == "jrcew":
+        # weight by class imbalance
+        pct = train_data.class_percents()
+        class_wgt = (1.0 - pct/100).to(device)
+        crit = loss.JRegularizedCrossEntropyLoss(None, class_wgt)
     elif args.loss == "ce":
         crit = nn.CrossEntropyLoss()
     elif args.loss == "wce":
@@ -117,6 +127,8 @@ def main(**kwargs):
         crit = loss.DiceRegularizedCrossEntropy()
     else:
         raise ValueError("invalid loss")
+
+    return 0
     
     # save input arguments to json file
     if args.save_path is not None:
@@ -322,7 +334,6 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--data", type=str, required=True,
                         help="path to data folder")
     parser.add_argument("-l", "--loss", type=str, default="ce",
-                        choices=["jreg", "wce", "ce", "dice", "dsc"],
                         help="type of loss function")
     parser.add_argument("-c", "--num-classes", type=int, default=2,
                         choices=[2,3,4], help="number of semantic classes")

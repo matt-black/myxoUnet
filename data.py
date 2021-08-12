@@ -2,6 +2,7 @@
 """
 # base python
 import os
+import math
 
 # pytorch
 import torch
@@ -14,7 +15,7 @@ import numpy as np
 import pandas as pd
 import elasticdeform.torch as elastic
 
-
+        
 class MaskDataset(torch.utils.data.Dataset):
     """
     """
@@ -90,6 +91,95 @@ class MaskDataset(torch.utils.data.Dataset):
                 class_tot[ci] += (msk == ci).sum()
         return torch.stack(class_tot) / total_pix * 100
 
+
+class SizeScaledMaskDataset(torch.utils.data.Dataset):
+    
+    def __init__(self, base_dir, set_type, n_classes=2, crop_dim=256, 
+                 transform=None, stat_norm=True):
+        # confirm input is ok
+        assert set_type in ("train", "test")
+        # setup directory & table locations
+        self.img_dir = os.path.join(base_dir, set_type, "img")
+        self.msk_dir = os.path.join(base_dir, set_type, "msk")
+        self.tbl = pd.read_csv(os.path.join(base_dir, 
+                                            "{}.csv".format(set_type)))
+        # dataset length
+        self.n_img = len(self.tbl.idx)
+        self.n_class = n_classes
+        self.stat_norm = stat_norm  # should we normalize by mean/std?
+        # setup formatting for input masks
+        if n_classes == 4:
+            self.msk_fmt = "im{:03d}_j4.png"
+        elif n_classes == 3:
+            self.msk_fmt = "im{:03d}_j3.png"
+        elif n_classes == 2:
+            self.msk_fmt = "im{:03d}_cell.png"
+        else:
+            raise Exception("invalid mask number")
+        # image transforms
+        self.to_tensor = transforms.PILToTensor()
+        self.trans = transforms.Compose([transforms.RandomCrop(crop_dim), 
+                                         transform])
+        # figure out dataset sizing based on total # crops
+        n_cropz = []
+        for idx in range(self.n_img):
+            w, h = Image.open(os.path.join(
+                self.img_dir, "im{:03d}.png").format(
+                    self.tbl.idx[idx])).size
+            n_cropz.append(math.floor((w*h)/(crop_dim**2)))
+        id_list =[[i]*n for (i,n) in zip(range(self.n_img),n_cropz)]
+        self.idx_list = _flatten_list(id_list)
+        
+    def __len__(self):
+        return len(self.idx_list)
+    
+    def __getitem__(self, idx):
+        tbl_idx = self.idx_list[idx]
+        img = self.to_tensor(self._get_image(tbl_idx))
+        if self.stat_norm:
+            subval = img.float().mean()
+            denom = img.float().std()
+        else:
+            subval = img.min().float()
+            denom = img.max().float() - subval
+            
+        mask = self.to_tensor(self._get_mask(tbl_idx))
+        # apply transformations
+        if self.trans is not None:
+            comb = torch.cat([img, mask], dim=0)  # concat along channel dim
+            comb = self.trans(comb)
+            img, mask = split_imgmask(comb)
+        # normalize image and return
+        img = (img.float() - subval) / denom
+        return img, mask.long()
+    
+    def _get_image(self, idx):
+        img_path = os.path.join(self.img_dir,
+                                "im{:03d}.png".format(self.tbl.idx[idx]))
+        return Image.open(img_path)
+    
+    def _get_mask(self, idx):
+        msk_name = self.msk_fmt.format(self.tbl.idx[idx])
+        msk_path = os.path.join(self.msk_dir, msk_name)
+        return Image.open(msk_path)
+    
+    def class_percents(self):
+        """Compute percentage of each class making up dataset
+        """
+        class_tot = [0 for i in range(self.n_class)]
+        total_pix = 0
+        for idx in range(self.n_img):
+            msk = self.to_tensor(self._get_mask(idx))
+            total_pix += torch.mul(msk.shape[-2], msk.shape[-1])
+            for ci in range(self.n_class):
+                class_tot[ci] += (msk == ci).sum()
+        return torch.stack(class_tot) / total_pix * 100
+
+
+def _flatten_list(l):
+    """flatten a list of lists into just a list
+    """
+    return [item for sublist in l for item in sublist]
 
 def split_imgmask(img_mask_tensor):
     """split the concatenated image/mask from MaskDataset back out to

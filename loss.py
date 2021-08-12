@@ -49,7 +49,7 @@ def dice_loss(pred, target, reduction="mean", eps=1e-6):
     elif reduction == "sum":
         return torch.sum(1.0 - dice)
     else:
-        return dice
+        return (1.0 - dice)
     
 class DiceRegularizedCrossEntropy(nn.Module):
     
@@ -80,16 +80,15 @@ def dice_regularized_cross_entropy(pred, target, reduction="mean", eps=1e-6):
 
 class JLoss(nn.Module):
     
-    def __init__(self, weight=None, reduction="mean"):
+    def __init__(self, weight=None):
         super(JLoss, self).__init__()
         self.weight = weight
-        self.reduction = reduction
         
     def forward(self, pred, target):
-        return j_loss(pred, target, self.weight, self.reduction)
+        return j_loss(pred, target, self.weight)
 
 
-def j_loss(pred, target, weights=None, reduction="mean"):
+def j_loss(pred, target, weights=None):
     """
     J-statistic based loss function
 
@@ -108,7 +107,6 @@ def j_loss(pred, target, weights=None, reduction="mean"):
     -------
     J loss for prediction & targets
     """
-    _check_valid_reduction(reduction)
     if weights is None:
         weights = torch.ones((pred.size(1), pred.size(1)), 
                              device=pred.device, dtype=pred.dtype)
@@ -127,49 +125,41 @@ def j_loss(pred, target, weights=None, reduction="mean"):
                        device=pred.device, dtype=pred.dtype)
     for ci in range(pred.size(1)):
         for ck in range(pred.size(1)):
+            if ci == ck:
+                continue
             delta_ik = torch.div(phi[:,ci,:,:]-phi[:,ck,:,:], 2)
             loss[:,ci,ck] = weights[ci,ck] * torch.log(
                 0.5 + torch.mul(pred[:,ci,:,:], delta_ik).sum(dim=(-2,-1)))
-    
     # sum over classes
     j = torch.neg(loss.sum(dim=(-2, -1)))
-    
-    # return (possibly batch-reduced) loss
-    if reduction == "mean":
-        return j.mean()
-    elif reduction == "sum":
-        return j.sum()
-    else:  # "none"
-        return j
+    return j
     
     
 class JRegularizedCrossEntropyLoss(nn.Module):
     
-    def __init__(self, weights=None, reduction="mean"):
+    def __init__(self, j_wgt=None, ce_wgt=None):
         super(JRegularizedCrossEntropyLoss, self).__init__()
-        self.weights = weights
-        self.reduction = reduction
-    
+        self.j_wgt = j_wgt
+        self.ce_wgt = ce_wgt
+
     def forward(self, pred, target):
         return j_regularized_cross_entropy(pred, target, 
-                                           weights=self.weights,
-                                           reduction=self.reduction)
+                                           self.j_wgt, self.ce_wgt)
     
     
-def j_regularized_cross_entropy(pred, target, weights=None, reduction="mean"):
+def j_regularized_cross_entropy(pred, target, j_wgt=None, ce_wgt=None):
     """
     """
-    jl = j_loss(pred, target, weights, reduction="none")
-    ce = F.cross_entropy(_collapse_outer_dims(pred), 
-                         _collapse_outer_dims(target), 
-                         reduction="none")
-    ce = ce.mean(dim=-1)
-    if reduction == "mean":
-        return (jl + ce).mean()
-    elif reduction == "sum":
-        return (jl + ce).sum()
+    jl = j_loss(pred, target, j_wgt)
+    if ce_wgt is None:
+        ce = F.cross_entropy(_collapse_outer_dims(pred), 
+                             _collapse_outer_dims(target), 
+                             reduction="mean")
     else:
-        return jl + ce
+        ce = F.cross_entropy(_collapse_outer_dims(pred),
+                             _collapse_outer_dims(target),
+                             weight=ce_wgt, reduction="mean")    
+    return jl + ce
 
 
 def _collapse_outer_dims(x):
