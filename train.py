@@ -107,8 +107,13 @@ def main(**kwargs):
                            shuffle=True, **datakw)
     
     # make loss function
-    if args.loss == "jreg":
+    if args.loss == "jrce":
         crit = loss.JRegularizedCrossEntropyLoss()
+    elif args.loss == "jrcew":
+        # weight by class imbalance
+        pct = train_data.class_percents()
+        class_wgt = (1.0 - pct/100).to(device)
+        crit = loss.JRegularizedCrossEntropyLoss(None, class_wgt)
     elif args.loss == "ce":
         crit = nn.CrossEntropyLoss()
     elif args.loss == "wce":
@@ -122,6 +127,8 @@ def main(**kwargs):
         crit = loss.DiceRegularizedCrossEntropy()
     else:
         raise ValueError("invalid loss")
+
+    return 0
     
     # save input arguments to json file
     if args.save_path is not None:
@@ -327,7 +334,6 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--data", type=str, required=True,
                         help="path to data folder")
     parser.add_argument("-l", "--loss", type=str, default="ce",
-                        choices=["jreg", "wce", "ce", "dice", "dsc"],
                         help="type of loss function")
     parser.add_argument("-c", "--num-classes", type=int, default=2,
                         choices=[2,3,4], help="number of semantic classes")
