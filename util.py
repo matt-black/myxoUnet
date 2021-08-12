@@ -51,6 +51,8 @@ def one_hot(labels, num_class, device, dtype, eps=1e-6):
 def overlap_tile(img, net, crop_size, pad_size, tile_norm="none"):
     """
     predict segmentation of `img` using the overlap-tile strategy
+    NOTE: currently only works if the image is mod-divisible by `crop_size` in both dimensions
+    
 
     Parameters
     ----------
@@ -62,7 +64,10 @@ def overlap_tile(img, net, crop_size, pad_size, tile_norm="none"):
         dimension of (square) region to be predicted in img
     pad_size : int
         amount to pad `crop_size` by to generate input tiles for network
-
+    tile_norm : str
+        do tile-level image normalization based on either mapping to
+        either [0,1] ("simp") or by subtracting mean and dividing by std. dev ("stat")
+        for no tile normalization, "none" (default)
     Returns
     -------
     pred : torch.Tensor
@@ -71,10 +76,11 @@ def overlap_tile(img, net, crop_size, pad_size, tile_norm="none"):
     """
     assert img.shape[-2] % crop_size == 0
     assert img.shape[-1] % crop_size == 0
-    # unsqueeze image to make it work
+    # unsqueeze input image to make it work with the net
+    # (net wants BxCxHxW)
     if len(img.shape) == 2:
         img = img.unsqueeze(0).unsqueeze(0)
-    elif len(img).shape == 3:
+    elif len(img.shape) == 3:
         img = img.unsqueeze(0)
     
     # figure out which device stuff is on
@@ -83,14 +89,12 @@ def overlap_tile(img, net, crop_size, pad_size, tile_norm="none"):
     img_pad = TF.pad(img, [pad_size, pad_size], padding_mode='reflect')
     tile_size = crop_size + 2*pad_size  # size of tiles input to network
 
-    pred = torch.zeros(img.shape[-2], img.shape[-1], dtype=torch.int64,
-                       device=dev)
+    pred = torch.zeros(img.shape[-2], img.shape[-1],
+                       dtype=torch.int64, device=dev)
     for r in range(0, img.shape[-2], crop_size):
         for c in range(0, img.shape[-1], crop_size):
             # adjust for padding size, then crop out tile
-            rc = r if r > 0 else r
-            cc = c if c > 0 else c
-            tile = TF.crop(img_pad, rc, cc, tile_size, tile_size)
+            tile = TF.crop(img_pad, r, c, tile_size, tile_size)
             # do normalization at tile-level, if specified
             if tile_norm != "none":
                 if tile_norm == "stat":
@@ -110,6 +114,7 @@ def process_image(img, net):
     dev = next(net.parameters()).device
     pred = F.softmax(net(img), dim=1)
     return pred
+
 
 def truefalse_posneg_stats(y_true, y_pred, num_class):
     # convert truth mask to one-hot
