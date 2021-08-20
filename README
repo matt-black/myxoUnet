@@ -3,6 +3,23 @@ myxoUnet
 
 a U-net for segmenting myxo cells
 
+Packages/Dependencies
+---
+(start with Anaconda)
+Python 3.8
+install from conda:
+	pytorch
+	torchvision
+	numpy
+	pandas
+	scipy	
+	pillow
+    scikit-image
+
+install from pip:
+	elasticdeform
+
+
 Valid crop size index:
 ---
 

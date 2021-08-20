@@ -25,7 +25,7 @@ from util import overlap_tile
 parser = argparse.ArgumentParser(description="UNet for full frames of Katie's data")
 
 parser.add_argument("-f", "--folder", type=str,
-                    default="../expts/2021-08-07_wce_256", 
+                    default="../../expts/2021-08-07_wce_256", 
                     help="path to training output folder")
 parser.add_argument("-m", "--mat", type=str, 
                     default="../supp/katie_monolayer_08_06_2021.mat",

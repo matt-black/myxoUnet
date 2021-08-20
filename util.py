@@ -48,6 +48,21 @@ def one_hot(labels, num_class, device, dtype, eps=1e-6):
     return one_hot.scatter_(1, labels.unsqueeze(1), 1.0) + eps
 
 
+def _ensure4d(img):
+    """
+    adjust input image so that it's 4-dimensional/okay for net
+    """
+    if len(img.shape) == 1:
+        raise Exception("dont know how to handle 1d inputs")
+    elif len(img.shape) == 2:
+        return img.unsqueeze(0).unsqueeze(0)
+    elif len(img.shape) == 3:
+        return img.unsqueeze(0)
+    elif len(img.shape) == 4:
+        return img
+    else:
+        raise Exception("dont know how to handle >4d inputs")
+
 def overlap_tile(img, net, crop_size, pad_size, tile_norm="none"):
     """
     predict segmentation of `img` using the overlap-tile strategy
@@ -78,10 +93,7 @@ def overlap_tile(img, net, crop_size, pad_size, tile_norm="none"):
     assert img.shape[-1] % crop_size == 0
     # unsqueeze input image to make it work with the net
     # (net wants BxCxHxW)
-    if len(img.shape) == 2:
-        img = img.unsqueeze(0).unsqueeze(0)
-    elif len(img.shape) == 3:
-        img = img.unsqueeze(0)
+    img = _ensure4d(img)
     
     # figure out which device stuff is on
     dev = next(net.parameters()).device
@@ -112,7 +124,7 @@ def overlap_tile(img, net, crop_size, pad_size, tile_norm="none"):
 
 def process_image(img, net):
     dev = next(net.parameters()).device
-    pred = F.softmax(net(img), dim=1)
+    pred = F.softmax(net(_ensure4d(img).to(dev)), dim=1)
     return pred
 
 

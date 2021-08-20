@@ -1,25 +1,30 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Testing the watershed post-processing technique
+
+@author: matt
+"""
+
 # %% imports
 # python
 import os, sys
-import csv
 import json
 import argparse
 
-import torchmetrics.functional as tmF
+import torch
 from torchvision.transforms import CenterCrop
 
-# science libs
-import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
+from skimage.segmentation import watershed
+from skimage.feature import peak_local_max
+from scipy import ndimage as ndi
 
-# my stuff
 sys.path.insert(1, os.path.abspath('..'))
 from train import load_checkpoint
 from data import MaskDataset
 
-from util import overlap_tile, process_image, truefalse_posneg_stats
+from util import process_image
 
 # %% script arguments
 parser = argparse.ArgumentParser(description="UNet training evaluation script")
@@ -42,12 +47,6 @@ with open(os.path.join(args.folder, "args.json")) as args_json:
         train_args["data_statnorm"] = False
     train_args = argparse.Namespace(**train_args)
     
-# losses
-train_loss = pd.read_csv(os.path.join(args.folder, "losses.csv"))
-
-plt.plot(train_loss["epoch"], train_loss["train"],
-          train_loss["epoch"], train_loss["test"])
-
 # network
 net, _ = load_checkpoint(os.path.join(args.folder, "model.pth"),
                          train_args)
@@ -61,28 +60,18 @@ data = MaskDataset(data_path, "test", train_args.num_classes,
                    transform=None, nplicates=1, 
                    stat_norm=train_args.data_statnorm)
 
-# %% Katie's image
-# img, msk = data.__getitem__(2)
-# crop_size = train_args.crop_size + train_args.input_pad
-# cc = CenterCrop([crop_size, crop_size])
-# img = cc(img)
-# msk = cc(msk)
-
-# pre = process_image(img.unsqueeze(0), net).detach().numpy()
-# # plt.imshow(pre[0,1,:,:])
-
-# img_disp = CenterCrop([train_args.crop_size, train_args.crop_size])(img)
-
-# plt.figure()
-# plt.imshow(img_disp[0,:,:,].numpy(), cmap='gray')
-# plt.figure()
-# plt.imshow(pre[0,1,:,:], cmap='jet')
-# plt.show()
-# %% overlap tiling
-img, msk = data.__getitem__(0)
-pred = overlap_tile(img.unsqueeze(1), net, 
-                    train_args.crop_size, train_args.input_pad//2)
-# (tp,fp), (tn,fn) = truefalse_posneg_stats(msk, pred, 2)
-# ss = tmF.stat_scores(pred, msk, num_classes=2, multiclass=False)
-# ss2 = tmF.iou(pred, msk, num_classes=1)
-plt.imshow(pred==1)
+# %% watershed
+img, msk = data.__getitem__(1)
+cc = CenterCrop([train_args.crop_size+train_args.input_pad, 
+                 train_args.crop_size+train_args.input_pad])
+cc2 = CenterCrop([train_args.crop_size, train_args.crop_size])
+pred = process_image(cc(img), net)
+cell_mask = torch.argmax(pred, dim=1).squeeze(0).detach().numpy() == 1
+pr_cell = pred[0,1,:,:]
+pr_edge = pred[0,2,:,:]
+ws_strt = (pred[0,2,:,:] - pred[0,1,:,:]).detach().numpy()
+markers, _ = ndi.label (cell_mask)
+ws_res = watershed (cc2(img).squeeze(0).detach().numpy(), markers, 
+                    connectivity=np.ones((3,3)), mask=cell_mask, 
+                    watershed_line=True)
+plt.imshow(ws_res)
