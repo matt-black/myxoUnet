@@ -144,7 +144,9 @@ def train(data, model, criterion, optimizer, epoch, wa, outdim, device,
         img = img.to(device)
         # crop masks to match output size of network
         cell_msk = transforms.functional.center_crop(cell_msk, [outdim, outdim])
+        cell_msk = cell_msk.to(device)
         cntr_msk = transforms.functional.center_crop(cntr_msk, [outdim, outdim])
+        cntr_msk = cntr_msk.to(device)
         cell_msk = one_hot(cell_msk, 2, device, dtype=torch.float32)
         cntr_msk = one_hot(cntr_msk, 2, device, dtype=torch.float32)
         # computation
@@ -188,8 +190,10 @@ def test(data, model, criterion, epoch, outdim, device, prog_disp=1):
             img = img.to(device)
             cell_msk = transforms.functional.center_crop(cell_msk, 
                                                          [outdim, outdim])
+            cell_msk = cell_msk.to(device)
             cntr_msk = transforms.functional.center_crop(cntr_msk, 
                                                          [outdim, outdim])
+            cntr_msk = cntr_msk.to(device)
             cell_msk = one_hot(cell_msk, 2, device, dtype=torch.float32)
             cntr_msk = one_hot(cntr_msk, 2, device, dtype=torch.float32)
             # computation
