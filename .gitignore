@@ -6,6 +6,8 @@ supp/testkc/*
 supp/dcankc/*
 expts/*
 *.mat
+dcan_2021*
+slurm*
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,matlab,emacs
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,matlab,emacs
