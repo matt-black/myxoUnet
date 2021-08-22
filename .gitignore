@@ -3,6 +3,7 @@
 supp/stream_data/*
 supp/test/*
 supp/testkc/*
+supp/dcankc/*
 expts/*
 *.mat
 

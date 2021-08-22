@@ -1,11 +1,11 @@
-"""Training script
+"""Training script for DCAN
 """
 
 # python
 import os
 import csv
 import json
-from math import inf
+from math import inf, log10
 from datetime import date
 import time
 import random
@@ -13,18 +13,16 @@ import argparse
 
 # pytorch
 import torch
-from torch import nn, optim
+from torch import optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from torchvision.transforms.functional import center_crop
 
-from unet import UNet
-from data import MaskDataset, SizeScaledMaskDataset
+from dcan import DCAN
+from data import DCANDataset
 from data import RandomRotateDeformCrop
 import loss
-from util import AvgValueTracker, ProgressShower
-
+from util import AvgValueTracker, ProgressShower, one_hot
 
 def main(**kwargs):
     args = argparse.Namespace(**kwargs)
@@ -37,8 +35,7 @@ def main(**kwargs):
     # setup output folder
     if args.save:
         # generate output path
-        fldr_name = "{d}_{l}".format(d=date.today().strftime("%Y-%m-%d"),
-                                     l=args.loss)
+        fldr_name = "dcan_{d}".format(d=date.today().strftime("%Y-%m-%d"))
         args.save_path = os.path.join(os.getcwd(), fldr_name)
     else:
         args.save_path = None
@@ -54,37 +51,18 @@ def main(**kwargs):
     use_cuda = torch.cuda.is_available() and (not args.no_cuda)
     device = torch.device("cuda" if use_cuda else "cpu")
     
-    # setup UNet
-    net = UNet(in_channels=1,
-               n_classes=args.num_classes,
-               depth=args.unet_depth,
-               wf=args.unet_wf,
-               padding=args.unet_pad,
-               batch_norm=args.unet_batchnorm,
-               up_mode=args.unet_upmode)
+    # setup DCAN
+    print(args.dcan_upmode)
+    net = DCAN(in_channels=1,
+               depth=args.dcan_depth,
+               wf=args.dcan_wf,
+               kernel_size=args.dcan_kernel_size,
+               padding=args.dcan_pad,
+               batch_norm=args.dcan_batchnorm,
+               up_mode=args.dcan_upmode,
+               out_dim=args.dcan_outdim)
     net = net.to(device)
-    
-    # TODO: fix this so you actually know what size to pad with instead of
-    # just guessing until you find a good one
-    if not args.unet_pad:
-        inp = torch.rand(1, 1, args.crop_size, args.crop_size).to(device)
-        out_sze = net(inp).size(-1)
-        padval = args.crop_size - out_sze
-        # now try and see if it works
-        inp = torch.rand(1, 1, args.crop_size+padval, 
-                         args.crop_size+padval).to(device)
-        out_sze = net(inp).size(-1)
-        # if sizes dont match, tell user to try again
-        if out_sze != args.crop_size:
-            raise ValueError(
-                "crop size isnt valid with specified network structure")
-        # if we got here, then the padding is ok
-        crop_dim = args.crop_size + padval
-        args.input_pad = padval
-    else:
-        crop_dim = args.crop_size
-        args.input_pad = 0
-        
+            
     # build up train/test datasets
     if not (os.path.isdir(args.data)):
         raise Exception("specified data directory doesn't exist")
@@ -92,43 +70,20 @@ def main(**kwargs):
     train_trans = transforms.Compose([
         transforms.RandomHorizontalFlip(),
         transforms.RandomVerticalFlip(),
-        RandomRotateDeformCrop(sigma=5, points=5, crop=crop_dim)])
-    train_data = SizeScaledMaskDataset(args.data, "train", 
-                             args.num_classes,
-                             crop_dim=crop_dim, 
+        RandomRotateDeformCrop(sigma=5, points=5, crop=args.crop_size)])
+    train_data = DCANDataset(args.data, "train",
                              transform=train_trans, 
                              stat_norm=args.data_statnorm)
     train_load = DataLoader(train_data, batch_size=args.batch_size, 
                             shuffle=True, **datakw)
-    test_data = SizeScaledMaskDataset(args.data, "test", 
-                            args.num_classes,
-                            crop_dim=crop_dim,
-                            transform=transforms.RandomCrop(crop_dim),
+    test_data = DCANDataset(args.data, "test",
+                            transform=transforms.RandomCrop(args.crop_size),
                             stat_norm=args.data_statnorm)
     test_load = DataLoader(test_data, batch_size=args.batch_size,
                            shuffle=True, **datakw)
     
     # make loss function
-    if args.loss == "jrce":
-        crit = loss.JRegularizedCrossEntropyLoss()
-    elif args.loss == "jrcew":
-        # weight by class imbalance
-        pct = train_data.class_percents()
-        class_wgt = (1.0 - pct/100).to(device)
-        crit = loss.JRegularizedCrossEntropyLoss(None, class_wgt)
-    elif args.loss == "ce":
-        crit = nn.CrossEntropyLoss()
-    elif args.loss == "wce":
-        # weight by class imbalance
-        pct = train_data.class_percents()
-        class_wgt = (1.0 - pct/100).to(device)
-        crit = nn.CrossEntropyLoss(class_wgt)
-    elif args.loss == "dice":
-        crit = loss.DiceLoss()
-    elif args.loss == "dsc":
-        crit = loss.DiceRegularizedCrossEntropy()
-    else:
-        raise ValueError("invalid loss")
+    crit = loss.DcanLoss(eps=1e-6)
     
     # save input arguments to json file
     if args.save_path is not None:
@@ -147,11 +102,14 @@ def main(**kwargs):
     test_losses  = []
     for epoch in range(args.epochs):
         # training
-        train_loss = train(train_load, net, crit, opt, epoch, device,
-                           args.crop_size, args.print_freq)
+        wa = 10 ** (-log10(epoch+1)-1)
+        wa = 0 if wa < 10 ** (-3) else wa
+        train_loss = train(train_load, net, crit, opt, epoch, wa, 
+                           args.dcan_outdim, device, 
+                           prog_disp=args.print_freq)
         train_losses.append(train_loss)
-        test_loss = test(test_load, net, crit, epoch, device,
-                         args.crop_size, args.print_freq)
+        test_loss = test(test_load, net, crit, epoch, args.dcan_outdim, 
+                         device, prog_disp=args.print_freq)
         test_losses.append(test_loss)
         if (test_loss < min_test_loss) and args.save_path is not None:
             save_checkpoint(os.path.join(args.save_path, "model.pth"),
@@ -171,7 +129,7 @@ def main(**kwargs):
     return 0
 
 
-def train(data, model, criterion, optimizer, epoch, device, output_size, 
+def train(data, model, criterion, optimizer, epoch, wa, outdim, device, 
           prog_disp=1):
     """per-epoch training loop
     """
@@ -182,20 +140,31 @@ def train(data, model, criterion, optimizer, epoch, device, output_size,
     
     model.train()               # switch to train mode
     strt_time = time.time()
-    for idx, (img, msk) in enumerate (data):
-        msk = center_crop(msk, output_size)  # so that mask matches output size
+    for idx, (img, cell_msk, cntr_msk) in enumerate (data):
         img = img.to(device)
-        msk = msk.to(device)
+        # crop masks to match output size of network
+        cell_msk = transforms.functional.center_crop(cell_msk, [outdim, outdim])
+        cntr_msk = transforms.functional.center_crop(cntr_msk, [outdim, outdim])
+        cell_msk = one_hot(cell_msk, 2, device, dtype=torch.float32)
+        cntr_msk = one_hot(cntr_msk, 2, device, dtype=torch.float32)
         # computation
-        out = model(img)
-        out = F.softmax(out, dim=1)
-        loss = criterion(out, msk)
+        m0, mc, c123 = model(img)
+        # convert outputs to probability maps
+        p0 = F.softmax(m0, dim=1)
+        pc = F.softmax(mc, dim=1)
+        # intermediate masks
+        p123 = [(F.softmax(i0, dim=1), F.softmax(ic, dim=1)) 
+                for (i0, ic) in c123]
+        
+        loss = criterion(p0, cell_msk, pc, cntr_msk)
+        l123 = [wa*criterion(i0, cell_msk, ic, cntr_msk) for (i0, ic) in p123]
+        total_loss = loss + torch.sum(torch.stack(l123, dim=0))
         # gradient/SGD step
         optimizer.zero_grad()
-        loss.backward()
+        total_loss.backward()
         optimizer.step()
         # record
-        avgloss.update(loss.item(), img.size(0))
+        avgloss.update(total_loss.item(), img.size(0))
         avgbtme.update(time.time() - strt_time)
         strt_time = time.time()
         # show progress
@@ -204,7 +173,7 @@ def train(data, model, criterion, optimizer, epoch, device, output_size,
     return avgloss.avg
 
 
-def test(data, model, criterion, epoch, device, output_size, prog_disp=1):
+def test(data, model, criterion, epoch, outdim, device, prog_disp=1):
     """per-epoch testing loop
     """
     avgloss = AvgValueTracker("Loss", ":.4e")
@@ -215,14 +184,20 @@ def test(data, model, criterion, epoch, device, output_size, prog_disp=1):
     model.eval()
     strt_time = time.time()
     with torch.no_grad():
-        for idx, (img, msk) in enumerate(data):
-            msk = center_crop(msk, output_size)  # so that mask matches output size
+        for idx, (img, cell_msk, cntr_msk) in enumerate(data):
             img = img.to(device)
-            msk = msk.to(device)
+            cell_msk = transforms.functional.center_crop(cell_msk, 
+                                                         [outdim, outdim])
+            cntr_msk = transforms.functional.center_crop(cntr_msk, 
+                                                         [outdim, outdim])
+            cell_msk = one_hot(cell_msk, 2, device, dtype=torch.float32)
+            cntr_msk = one_hot(cntr_msk, 2, device, dtype=torch.float32)
             # computation
-            out = model(img)
-            out = F.softmax(out, dim=1)
-            loss = criterion(out, msk)
+            m0, mc, _ = model(img)
+            # convert outputs to probability maps
+            p0 = F.softmax(m0, dim=1)
+            pc = F.softmax(mc, dim=1)
+            loss = criterion(p0, cell_msk, pc, cntr_msk)
             # record
             avgloss.update(loss.item(), img.size(0))
             avgbtme.update(time.time()-strt_time)
@@ -249,13 +224,14 @@ def load_checkpoint(filepath, argz):
         chkpt = torch.load(filepath, map_location=torch.device("cpu"))
         
     # initialize network/optimizer
-    net = UNet(in_channels=1,
-               n_classes=argz.num_classes,
-               depth=argz.unet_depth,
-               wf=argz.unet_wf,
-               padding=argz.unet_pad,
-               batch_norm=argz.unet_batchnorm,
-               up_mode=argz.unet_upmode)
+    net = DCAN(in_channels=1,
+               depth=argz.dcan_depth,
+               wf=argz.dcan_wf,
+               kernel_size=argz.dcan_kernel_size,
+               padding=argz.dcan_pad,
+               batch_norm=argz.dcan_batchnorm,
+               up_mode=argz.dcan_upmode,
+               out_dim=argz.dcan_outdim)
     if argz.sgd:
         opt = optim.SGD(net.parameters(), lr=argz.learning_rate)
     else:
@@ -269,18 +245,12 @@ def load_checkpoint(filepath, argz):
 if __name__ == "__main__":
     """command line UI
     """
-    parser = argparse.ArgumentParser(description="UNet training script")
+    parser = argparse.ArgumentParser(description="DCAN training script")
     # data/loss parameters
     parser.add_argument("-d", "--data", type=str, required=True,
                         help="path to data folder")
-    parser.add_argument("-l", "--loss", type=str, default="ce",
-                        help="type of loss function")
-    parser.add_argument("-c", "--num-classes", type=int, default=2,
-                        choices=[2,3,4], help="number of semantic classes")
-    parser.add_argument("-cs", "--crop-size", type=int, default=256,
+    parser.add_argument("-cs", "--crop-size", type=int, default=280,
                         help="size of region to crop from original images")
-    parser.add_argument("-dn", "--data-nplicates", type=int, default=1,
-                        help="number of times to replicate base data in dataset")
     parser.add_argument("-ds", "--data-statnorm",
                         action="store_true", default=True,
                         help="normalize images by mean/std instead of just [0,1]")
@@ -294,18 +264,21 @@ if __name__ == "__main__":
     parser.add_argument("-e", "--epochs", type=int, default=1,
                         help="number of epochs")
     # unet parameters
-    parser.add_argument("-ud", "--unet-depth", type=int, default=3,
-                        help="depth of the UNet")
-    parser.add_argument("-uf", "--unet-wf", type=int, default=4,
+    parser.add_argument("-dd", "--dcan-depth", type=int, default=5,
+                        help="network depth")
+    parser.add_argument("-df", "--dcan-wf", type=int, default=4,
                         help="log2 number of filters in first layer")
-    parser.add_argument("-up", "--unet-pad", action="store_true", default=False,
-                        help="use padding in UNet so input matches output size")
-    parser.add_argument("-ub", "--unet-batchnorm", action="store_true", 
-                        default=True,
-                        help="use batch norm")
-    parser.add_argument("-um", "--unet-upmode", type=str, default="upconv", 
+    parser.add_argument("-dk", "--dcan-kernel-size", type=int, default=3,
+                        help="kernel size of downsampling layers")
+    parser.add_argument("-dp", "--dcan-pad", action="store_true", default=False,
+                        help="use padding in DCAN downsampling layers")
+    parser.add_argument("-db", "--dcan-batchnorm", action="store_true", 
+                        default=True, help="use batch norm")
+    parser.add_argument("-dm", "--dcan-upmode", type=str, default="upconv",
                         choices=["upconv", "upsample"],
-                        help="unet upsampling mode")
+                        help="upsampling mode of network")
+    parser.add_argument("-do", "--dcan-outdim", type=int, default=256,
+                        help="output size of DCAN")
     # misc
     parser.add_argument("-s", "--seed", type=int, default=None,
                         help="RNG seed")

@@ -1,7 +1,12 @@
 myxoUnet
 ===
 
-a U-net for segmenting myxo cells
+neural networks for segmenting myxo cells
+
+Models available:
+---
+U-Net (arXiv: 1505.04597)
+DCAN  (arXiv: 1604.02677)
 
 Packages/Dependencies
 ---
@@ -20,9 +25,8 @@ install from pip:
 	elasticdeform
 
 
-Valid crop size index:
+U-Net valid crop size index:
 ---
-
 Depth   Crop Size   
   3        256
   4        260
