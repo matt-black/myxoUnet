@@ -1,6 +1,14 @@
 function [ okay ] = make_kcdf ( fldr_name, data_path, pct_train, ...
-                                cell_width, aug_dim, bothat_rad )
-%MAKE_KCDF
+                                cell_width, aug_dim, bothat_rad, ...
+                                save_rgb_labels )
+%MAKE_KCDF generate a dataset for nn training from Katie-formatted data
+
+    narginchk (4, 7)
+    if nargin < 7, save_rgb_labels = true;
+        if nargin < 6, bothat_rad = 8;
+            if nargin < 5, aug_dim = 2; end
+        end
+    end
 
     this_path = mfilename ('fullpath');
     [this_fldr, ~, ~] = fileparts (this_path);
@@ -61,9 +69,14 @@ function [ okay ] = make_kcdf ( fldr_name, data_path, pct_train, ...
         imwrite (j3m, fullfile (write_dir, 'msk', ...
             sprintf ('im%03d_j3.png', write_idx)));
         imwrite (uint8 (cell_msk), fullfile (write_dir, 'msk', ...
-            sprintf ('im%03d_cell.png', write_idx)));
-        imwrite (cell_rgb, fullfile (write_dir, 'msk', ...
-            sprintf ('im%03d_clbl.png', write_idx)));
+                                             sprintf ('im%03d_cell.png', write_idx)));
+        if save_rgb_labels  % save (not-quantitative) rgb labels
+            imwrite (cell_rgb, fullfile (write_dir, 'msk', ...
+                sprintf ('im%03d_clbl.png', write_idx)));
+        else  % image preserves labels
+            imwrite (uint16(cell_lbl), fullfile (write_dir, 'msk', ...
+                sprintf ('im%03d_clbl.png', write_idx)));
+        end
         % iterate idx
         if (any (fi == train_idx))
             curr_train_idx = curr_train_idx + 1;
