@@ -3,7 +3,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=4G
-#SBATCH --time=00:05:00
+#SBATCH --time=04:00:00
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=jup-nb
 

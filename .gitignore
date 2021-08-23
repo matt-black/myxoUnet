@@ -7,6 +7,7 @@ supp/dcankc/*
 expts/*
 *.mat
 dcan_2021*
+mrcnn_2021*
 slurm*
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,matlab,emacs

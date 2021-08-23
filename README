@@ -7,7 +7,7 @@ Models available:
 ---
 U-Net (arXiv: 1505.04597)
 DCAN  (arXiv: 1604.02677)
-MaskRCNN
+MaskRCNN (arXiv: 1703.06870)
 
 Each folder should have all the code needed to run those models
 
