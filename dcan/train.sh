@@ -13,9 +13,9 @@ module purge
 module load anaconda3/2020.11
 conda activate pyt
 
-python train.py --data="../supp/dcankc" \
+python train.py --data="../supp/dcankc" --loss="ce" \
        --crop-size=263 --data-statnorm \
-       --learning-rate=.0001 --batch-size=1 --epochs=10 \
+       --learning-rate=.0001 --batch-size=1 --epochs=5000 \
        --dcan-depth=5 --dcan-wf=4 --dcan-kernel-size=3 \
-       --dcan-batchnorm --dcan-upmode="upsample" --dcan-outdim=256 \
+       --dcan-batchnorm --dcan-upmode="upconv" --dcan-outdim=256 \
        --print-freq=1 --save

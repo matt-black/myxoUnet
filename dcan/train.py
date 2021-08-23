@@ -13,7 +13,7 @@ import argparse
 
 # pytorch
 import torch
-from torch import optim
+from torch import nn, optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -113,33 +113,56 @@ def main(**kwargs):
     
     # epoch loop
     min_test_loss = inf
-    train_losses = []
-    test_losses  = []
     for epoch in range(args.epochs):
-        # training
+        # figure out auxiliary training weight
         wa = 10 ** (-log10(epoch+1)-1)
         wa = 0 if wa < 10 ** (-3) else wa
-        train_loss = train(train_load, net, crit, msk1h, opt, epoch, wa, 
-                           args.dcan_outdim, device, 
-                           prog_disp=args.print_freq)
-        train_losses.append(train_loss)
-        test_loss = test(test_load, net, crit, msk1h, epoch, args.dcan_outdim, 
-                         device, prog_disp=args.print_freq)
-        test_losses.append(test_loss)
+        
+        # do train/test for this epoch
+        train_loss, train_mask, train_cntr, train_aux = train(train_load, net,
+                                                              crit, msk1h,
+                                                              opt, epoch, wa, 
+                                                              args.dcan_outdim,
+                                                              device,args.print_freq)
+        test_loss, test_mask, test_cntr = test(test_load, net, crit,
+                                               msk1h, epoch, args.dcan_outdim, 
+                                               device, prog_disp=args.print_freq)
+
+        # write output losses to file
+        if epoch == 0 and args.save_path is not None: # do loss csv setup
+            with open(os.path.join(args.save_path, "train_loss.csv"), "w") as f:
+                fieldnames = ["epoch","total","mask","contour","aux"]
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+            with open(os.path.join(args.save_path, "test_loss.csv"), "w") as f:
+                fieldnames = ["epoch","total","mask","contour"]
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+        if args.save_path is not None:
+            with open(os.path.join(args.save_path, "train_loss.csv"), "a+") as f:
+                fieldnames = ["epoch","total","mask","contour","aux"]
+                row = {fieldnames[0] : epoch,
+                       fieldnames[1] : train_loss,
+                       fieldnames[2] : train_mask,
+                       fieldnames[3] : train_cntr,
+                       fieldnames[4] : train_aux}
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writerow(row)
+            with open(os.path.join(args.save_path, "test_loss.csv"), "a+") as f:
+                fieldnames = ["epoch","total","mask","contour"]
+                row = {fieldnames[0] : epoch,
+                       fieldnames[1] : test_loss,
+                       fieldnames[2] : test_mask,
+                       fieldnames[3] : test_cntr}
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writerow(row)
+        
+        # if this is the best model on the test set, save it
         if (test_loss < min_test_loss) and args.save_path is not None:
             save_checkpoint(os.path.join(args.save_path, "model.pth"),
                             net, opt, epoch)
             min_test_loss = test_loss
             print("saved checkpoint")
-
-    # write losses to csv file
-    if args.save_path is not None:
-        with open(os.path.join(args.save_path, "losses.csv"), "w") as loss_csv:
-            fieldnames = ["epoch", "train", "test"]
-            writer = csv.DictWriter(loss_csv, fieldnames=fieldnames)
-            writer.writeheader()
-            for ep, (tr, te) in enumerate (zip(train_losses, test_losses)):
-                writer.writerow({"epoch" : ep, "train" : tr, "test" : te})
     
     return 0
 
@@ -149,6 +172,9 @@ def train(data, model, criterion, mask2onehot, optimizer, epoch, wa, outdim,
     """per-epoch training loop
     """
     avgloss = AvgValueTracker("Loss", ":.4e")    # loss
+    avgmaskloss = AvgValueTracker("Mask Loss", ":4e")
+    avgcntrloss = AvgValueTracker("Contour Loss", ":4e")
+    avgauxloss  = AvgValueTracker("Aux. Loss", ":4e")
     avgbtme = AvgValueTracker("Time", ":6.3f")  # batch time
     prog = ProgressShower(len(data), [avgloss, avgbtme], 
                           prefix="Epoch: [{}]".format(epoch))
@@ -173,10 +199,17 @@ def train(data, model, criterion, mask2onehot, optimizer, epoch, wa, outdim,
         # intermediate masks
         p123 = [(F.softmax(i0, dim=1), F.softmax(ic, dim=1)) 
                 for (i0, ic) in c123]
-        
-        loss = criterion(p0, cell_msk, pc, cntr_msk)
-        l123 = [wa*criterion(i0, cell_msk, ic, cntr_msk) for (i0, ic) in p123]
-        total_loss = loss + torch.sum(torch.stack(l123, dim=0))
+
+        # compute losses/update trackers
+        mask_loss = criterion(p0, cell_msk)
+        avgmaskloss.update(mask_loss.item(), img.size(0))
+        cntr_loss = criterion(pc, cntr_msk)
+        avgcntrloss.update(cntr_loss.item(), img.size(0))
+        aux_losses = [criterion(i0, cell_msk)+criterion(ic, cntr_msk)
+                      for (i0, ic) in p123]
+        aux_loss = torch.sum(torch.stack(aux_losses, dim=0))
+        avgauxloss.update(aux_loss.item(), img.size(0))
+        total_loss = mask_loss + cntr_loss + (wa * aux_loss)
         # gradient/SGD step
         optimizer.zero_grad()
         total_loss.backward()
@@ -188,13 +221,15 @@ def train(data, model, criterion, mask2onehot, optimizer, epoch, wa, outdim,
         # show progress
         if idx % prog_disp == 0:
             prog.display(idx)
-    return avgloss.avg
+    return avgloss.avg, avgmaskloss.avg, avgcntrloss.avg, avgauxloss.avg
 
 
 def test(data, model, criterion, mask2onehot, epoch, outdim, device, prog_disp=1):
     """per-epoch testing loop
     """
     avgloss = AvgValueTracker("Loss", ":.4e")
+    avgmaskloss = AvgValueTracker("Mask Loss", ":4e")
+    avgcntrloss = AvgValueTracker("Contour Loss", ":4e")
     avgbtme = AvgValueTracker("Time", ":6.3f")
     prog = ProgressShower(len(data), [avgloss, avgbtme], 
                           prefix="Test: ")
@@ -218,7 +253,14 @@ def test(data, model, criterion, mask2onehot, epoch, outdim, device, prog_disp=1
             # convert outputs to probability maps
             p0 = F.softmax(m0, dim=1)
             pc = F.softmax(mc, dim=1)
-            loss = criterion(p0, cell_msk, pc, cntr_msk)
+            
+            # compute losses
+            mask_loss = criterion(p0, cell_msk)
+            avgmaskloss.update(mask_loss.item(), img.size(0))
+            cntr_loss = criterion(pc, cntr_msk)
+            avgcntrloss.update(cntr_loss.item(), img.size(0))
+            loss = mask_loss + cntr_loss
+            
             # record
             avgloss.update(loss.item(), img.size(0))
             avgbtme.update(time.time()-strt_time)
@@ -226,7 +268,7 @@ def test(data, model, criterion, mask2onehot, epoch, outdim, device, prog_disp=1
             # show progress
             if idx % prog_disp == 0:
                 prog.display(idx)
-    return avgloss.avg
+    return avgloss.avg, avgmaskloss.avg, avgcntrloss.avg
 
 
 def save_checkpoint(filepath, model, optimizer, epoch):
