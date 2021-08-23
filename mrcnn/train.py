@@ -1,10 +1,11 @@
 """Training script for MaskRCNN
 """
 import os, sys
-import argparse
+import csv
 import json
 from datetime import date
 import random
+import argparse
 
 sys.path.insert(1, os.path.abspath("."))
 sys.path.insert(1, os.path.abspath("./pytv"))
@@ -91,9 +92,25 @@ def main(**kwargs):
                                                    gamma=0.1)
 
     for epoch in range(args.epochs):
-        train_one_epoch(net, optim, data_train, device, epoch,
-                        print_freq=1)
+        metlog = train_one_epoch(net, optim, data_train, device, epoch,
+                                 print_freq=1)
+        if args.save_path is not None:
+            if epoch == 0:      # create file, write header
+                with open(os.path.join(args.save_path, "losses.csv"), "w") as f:
+                    fieldnames = [k for k in metlog.meters.keys()]
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
+                    writer.writeheader()
+            # write current losses to losses.csv file
+            with open(os.path.join(args.save_path, "losses.csv"), "a+") as f:
+                fieldnames = [k for k in metlog.meters.keys()]
+                row = {k : v.value for k, v in
+                       zip(metlog.meters.keys(), metlog.meters.values())}
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writerow(row)
+        # step the lr scheduler
         lr_scheduler.step()
+
+        # do evaluation on test dataset
         evaluate(net, data_test, device=device)
 
     if args.save:
