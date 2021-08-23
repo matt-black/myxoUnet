@@ -9,6 +9,8 @@ U-Net (arXiv: 1505.04597)
 DCAN  (arXiv: 1604.02677)
 MaskRCNN
 
+Each folder should have all the code needed to run those models
+
 Packages/Dependencies
 ---
 (start with Anaconda)
