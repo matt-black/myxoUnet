@@ -52,7 +52,6 @@ def main(**kwargs):
     device = torch.device("cuda" if use_cuda else "cpu")
     
     # setup DCAN
-    print(args.dcan_upmode)
     net = DCAN(in_channels=1,
                depth=args.dcan_depth,
                wf=args.dcan_wf,
@@ -83,7 +82,23 @@ def main(**kwargs):
                            shuffle=True, **datakw)
     
     # make loss function
-    crit = loss.DcanLoss(eps=1e-6)
+    if args.loss == "dcan":
+        crit = loss.DcanLoss(eps=1e-12)
+        msk1h = True
+    elif args.loss == "wce":
+        crit = nn.CrossEntropyLoss()  # TODO: figure out how to do weights for this
+        msk1h = False
+    elif args.loss == "ce":
+        crit = nn.CrossEntropyLoss()
+        msk1h = False
+    elif args.loss == "dice":
+        crit = loss.DiceLoss()
+        msk1h = False
+    elif args.loss == "dsc":
+        crit = loss.DiceRegularizedCrossEntropy()
+        msk1h = False
+    else:
+        raise ValueError("invalid loss")
     
     # save input arguments to json file
     if args.save_path is not None:
@@ -104,11 +119,11 @@ def main(**kwargs):
         # training
         wa = 10 ** (-log10(epoch+1)-1)
         wa = 0 if wa < 10 ** (-3) else wa
-        train_loss = train(train_load, net, crit, opt, epoch, wa, 
+        train_loss = train(train_load, net, crit, msk1h, opt, epoch, wa, 
                            args.dcan_outdim, device, 
                            prog_disp=args.print_freq)
         train_losses.append(train_loss)
-        test_loss = test(test_load, net, crit, epoch, args.dcan_outdim, 
+        test_loss = test(test_load, net, crit, msk1h, epoch, args.dcan_outdim, 
                          device, prog_disp=args.print_freq)
         test_losses.append(test_loss)
         if (test_loss < min_test_loss) and args.save_path is not None:
@@ -129,8 +144,8 @@ def main(**kwargs):
     return 0
 
 
-def train(data, model, criterion, optimizer, epoch, wa, outdim, device, 
-          prog_disp=1):
+def train(data, model, criterion, mask2onehot, optimizer, epoch, wa, outdim,
+          device, prog_disp=1):
     """per-epoch training loop
     """
     avgloss = AvgValueTracker("Loss", ":.4e")    # loss
@@ -147,8 +162,9 @@ def train(data, model, criterion, optimizer, epoch, wa, outdim, device,
         cell_msk = cell_msk.to(device)
         cntr_msk = transforms.functional.center_crop(cntr_msk, [outdim, outdim])
         cntr_msk = cntr_msk.to(device)
-        cell_msk = one_hot(cell_msk, 2, device, dtype=torch.float32)
-        cntr_msk = one_hot(cntr_msk, 2, device, dtype=torch.float32)
+        if mask2onehot:
+            cell_msk = one_hot(cell_msk, 2, device, dtype=torch.float32)
+            cntr_msk = one_hot(cntr_msk, 2, device, dtype=torch.float32)
         # computation
         m0, mc, c123 = model(img)
         # convert outputs to probability maps
@@ -175,7 +191,7 @@ def train(data, model, criterion, optimizer, epoch, wa, outdim, device,
     return avgloss.avg
 
 
-def test(data, model, criterion, epoch, outdim, device, prog_disp=1):
+def test(data, model, criterion, mask2onehot, epoch, outdim, device, prog_disp=1):
     """per-epoch testing loop
     """
     avgloss = AvgValueTracker("Loss", ":.4e")
@@ -194,8 +210,9 @@ def test(data, model, criterion, epoch, outdim, device, prog_disp=1):
             cntr_msk = transforms.functional.center_crop(cntr_msk, 
                                                          [outdim, outdim])
             cntr_msk = cntr_msk.to(device)
-            cell_msk = one_hot(cell_msk, 2, device, dtype=torch.float32)
-            cntr_msk = one_hot(cntr_msk, 2, device, dtype=torch.float32)
+            if mask2onehot:
+                cell_msk = one_hot(cell_msk, 2, device, dtype=torch.float32)
+                cntr_msk = one_hot(cntr_msk, 2, device, dtype=torch.float32)
             # computation
             m0, mc, _ = model(img)
             # convert outputs to probability maps
@@ -253,6 +270,9 @@ if __name__ == "__main__":
     # data/loss parameters
     parser.add_argument("-d", "--data", type=str, required=True,
                         help="path to data folder")
+    parser.add_argument("-l", "--loss", type=str, required=True,
+                        choices=["dcan", "wce", "ce", "dice", "dsc"],
+                        help="type of loss to use")
     parser.add_argument("-cs", "--crop-size", type=int, default=280,
                         help="size of region to crop from original images")
     parser.add_argument("-ds", "--data-statnorm",
