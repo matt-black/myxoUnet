@@ -6,9 +6,9 @@ from datetime import date
 import random
 
 sys.path.insert(1, os.path.abspath("."))
-sys.path.insert(1, os.path.abspath("./mrcnn"))
-from mrcnn.engine import train_one_epoch, evaluate
-import mrcnn.utils as utils
+sys.path.insert(1, os.path.abspath("./pytv"))
+from pytv.engine import train_one_epoch, evaluate
+import pytv.utils as utils
 
 from data import MaskRCNNDataset
 
@@ -34,7 +34,7 @@ def make_new_maskr(n_class=2, hidden_layer=256):
                                                        hidden_layer,
                                                        n_class)
     return model
-    
+
 
 def main(**kwargs):
     args = argparse.Namespace(**kwargs)

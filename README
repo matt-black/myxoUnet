@@ -7,6 +7,7 @@ Models available:
 ---
 U-Net (arXiv: 1505.04597)
 DCAN  (arXiv: 1604.02677)
+MaskRCNN
 
 Packages/Dependencies
 ---

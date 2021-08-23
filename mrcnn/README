@@ -1,0 +1,6 @@
+MaskRCNN
+===
+
+code for training a MaskRCNN model to do cell segmentation
+
+the `pytv` directory is copied from the pytorch vision (torchvision) repo in the `references/detection` folder on 08/22/2021

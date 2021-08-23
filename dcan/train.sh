@@ -9,11 +9,11 @@
 #SBATCH --mail-type=end
 #SBATCH --mail-user=mb46@princeton.edu
 
-# module purge
-# module load anaconda3/2020.11
-# conda activate pyt
+module purge
+module load anaconda3/2020.11
+conda activate pyt
 
-python train_dcan.py --data="./supp/dcankc" \
+python train.py --data="./supp/dcankc" \
        --crop-size=263 --data-statnorm \
        --learning-rate=.0001 --batch-size=1 --epochs=100 \
        --dcan-depth=5 --dcan-wf=4 --dcan-kernel-size=3 \

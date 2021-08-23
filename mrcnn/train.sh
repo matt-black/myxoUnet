@@ -13,4 +13,4 @@ module purge
 module load anaconda3/2020.11
 conda activate pyt
 
-python train_mrcnn.py --data="./supp/dcankc" --epochs=10 --save
+python train.py --data="./supp/dcankc" --epochs=10 --save

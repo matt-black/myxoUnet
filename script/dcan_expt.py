@@ -12,7 +12,7 @@ import argparse
 from torchvision.transforms import CenterCrop
 
 # my stuff
-sys.path.insert(1, os.path.abspath('..'))
+sys.path.insert(1, os.path.abspath('../dcan'))
 from dcan import DCAN
 from data import DCANDataset
 from util import convTranspose2dOutputSize, conv2dOutputSize
