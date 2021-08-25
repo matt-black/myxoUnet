@@ -109,3 +109,33 @@ def dice_regularized_cross_entropy(pred, target, reduction="mean", eps=1e-6):
         return (dice + ce).sum()
     else:
         return dice + ce
+
+
+def _collapse_outer_dims(x):
+    """
+    collapse all dims past the first two into a single one
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        (BxCx...)
+    Returns
+    -------
+    `x` reshaped to (BxCxN)
+
+    """
+    assert len(x.shape) == 3 or len(x.shape) == 4
+    if len(x.shape) == 4:
+        new_shape = (x.shape[0], x.shape[1],
+                     torch.mul(*x.shape[2:]))
+    else:
+         new_shape = (x.shape[0], torch.mul(*x.shape[1:]))   
+    return torch.reshape(x, new_shape)
+
+
+def _check_valid_reduction(reduction):
+    if reduction not in ("mean", "sum", "none"):
+        raise ValueError(
+            "invalid reduction, {}. Valid are 'mean', 'sum', 'none'".format(
+                reduction))    
+
