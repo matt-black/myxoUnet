@@ -16,8 +16,15 @@ function [ okay ] = make_kcdf ( fldr_name, data_path, pct_train, ...
     %% PROCESS
     % get # of images in dataset
     mat_obj = matfile (data_path);
-    n_img = length (who (mat_obj));
-
+    if isprop (mat_obj, 'data_with_masks1')
+        % new format
+        n_img = length (who (mat_obj)) - 1;
+        var_fmt = 'data_with_masks%d';
+    else
+        % old style/format
+        n_img = length (who (mat_obj));
+        var_fmt = 'dataset%d';
+    end
     % figure out train/test sets
     n_train = ceil (n_img * (pct_train/100));
     n_test = n_img - n_train;
@@ -38,8 +45,9 @@ function [ okay ] = make_kcdf ( fldr_name, data_path, pct_train, ...
     curr_train_idx = 1; curr_test_idx = 1;
     % populate directories with data
     for fi = 1:n_img
-        data = load (data_path, sprintf ('dataset%d', fi));
-        data = data.(sprintf ('dataset%d', fi));
+        % load dataset for this image
+        data = load (data_path, sprintf (var_fmt, fi));
+        data = data.(sprintf (var_fmt, fi));
         % filter down to approved cells
         appr = arrayfun (@(x) x.approved, data.cellList);
         cell_list = data.cellList(appr);
@@ -87,7 +95,9 @@ function [ okay ] = make_kcdf ( fldr_name, data_path, pct_train, ...
 
     trainT = cell2table (train_dict, 'VariableNames', {'idx', 'dataset_number'});
     writetable (trainT, fullfile (pwd, fldr_name, 'train.csv'));
-    testT = cell2table (test_dict, 'VariableNames', {'idx', 'dataset_number'});
-    writetable (testT, fullfile (pwd, fldr_name, 'test.csv'));
+    if ~isempty (test_dict)
+        testT = cell2table (test_dict, 'VariableNames', {'idx', 'dataset_number'});
+        writetable (testT, fullfile (pwd, fldr_name, 'test.csv'));
+    end
     okay = true;
 end

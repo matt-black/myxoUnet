@@ -4,31 +4,24 @@ function [ varargout ] = generateMasks ( cell_list, img_size, cell_width, ...
     
     % cell labels
     lbl_mask = zeros (img_size);
-    dist_mask = zeros (img_size);
     for ii = 1:numel(cell_list)
-        try
-            [this_cell, this_dist] = maskFromCellSpine (cell_list(ii).refined, ...
-                                                        img_size, cell_width);
-        catch
-            fprintf ('error while making cell %d\n', ii)
-            continue
+        if isfield (cell_list(ii), 'mask')
+            this_cell = cell_list(ii).mask;
+            % FIXME/HACK: why is this necessary for some masks?
+            this_cell = this_cell(1:img_size(1), 1:img_size(2));
+        else
+            try
+                this_cell = maskFromCellSpine (cell_list(ii).refined, ...
+                                               img_size, cell_width);
+            catch
+                fprintf ('error while making cell %d\n', ii)
+                continue
+            end
         end
         % zeros in mask get colored, keep this distance
         [r, c] = find (this_cell & not (lbl_mask));
         indz = sub2ind (img_size, r, c);
-        if not (isempty (indz))
-            lbl_mask(indz) = ii;
-            dist_mask(indz) = this_dist(indz);
-        end
-        % values in both get colored by distance
-        [r, c] = find (this_cell & lbl_mask);
-        indz = sub2ind (img_size, r, c);
-        for idx = indz
-            if this_dist(idx) < dist_mask(idx)
-                lbl_mask(idx) = ii;
-                dist_mask(idx) = this_dist(idx);
-            end
-        end
+        lbl_mask(indz) = ii;
     end
     varargout{1} = lbl_mask;
     if nargout == 1, return; end
