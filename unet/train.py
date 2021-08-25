@@ -100,13 +100,14 @@ def main(**kwargs):
                              stat_norm=args.data_statnorm)
     train_load = DataLoader(train_data, batch_size=args.batch_size, 
                             shuffle=True, **datakw)
-    test_data = SizeScaledMaskDataset(args.data, "test", 
-                            args.num_classes,
-                            crop_dim=crop_dim,
-                            transform=transforms.RandomCrop(crop_dim),
-                            stat_norm=args.data_statnorm)
-    test_load = DataLoader(test_data, batch_size=args.batch_size,
-                           shuffle=True, **datakw)
+    if not args.no_test:
+        test_data = SizeScaledMaskDataset(args.data, "test", 
+                                          args.num_classes,
+                                          crop_dim=crop_dim,
+                                          transform=transforms.RandomCrop(crop_dim),
+                                          stat_norm=args.data_statnorm)
+        test_load = DataLoader(test_data, batch_size=args.batch_size,
+                               shuffle=True, **datakw)
     
     # make loss function
     if args.loss == "jrce":
@@ -150,15 +151,24 @@ def main(**kwargs):
         train_loss = train(train_load, net, crit, opt, epoch, device,
                            args.crop_size, args.print_freq)
         train_losses.append(train_loss)
-        test_loss = test(test_load, net, crit, epoch, device,
-                         args.crop_size, args.print_freq)
+        if args.no_test:
+            test_loss = 0
+        else:
+            test_loss = test(test_load, net, crit, epoch, device,
+                             args.crop_size, args.print_freq)
         test_losses.append(test_loss)
         if (test_loss < min_test_loss) and args.save_path is not None:
+            if args.no_test:
+                continue
             save_checkpoint(os.path.join(args.save_path, "model.pth"),
                             net, opt, epoch)
             min_test_loss = test_loss
             print("saved checkpoint")
-
+    
+    if args.no_test:  # just save final model
+        save_checkpoint(os.path.join(args.save_path, "model.pth"),
+                        net, opt, args.epochs-1)
+    
     # write losses to csv file
     if args.save_path is not None:
         with open(os.path.join(args.save_path, "losses.csv"), "w") as loss_csv:
@@ -286,6 +296,8 @@ if __name__ == "__main__":
                         help="normalize images by mean/std instead of just [0,1]")
     parser.add_argument("--sgd", action="store_true", default=False,
                         help="use SGD instead of Adam")
+    parser.add_argument("--no-test", action="store_true", default=False,
+                        help="skip test/evaluation at each epoch")
     # training/optimization parameters
     parser.add_argument("-lr", "--learning-rate", type=float, default=1e-4,
                         help="learning rate")
