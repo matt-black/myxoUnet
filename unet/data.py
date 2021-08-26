@@ -176,6 +176,40 @@ class SizeScaledMaskDataset(torch.utils.data.Dataset):
         return torch.stack(class_tot) / total_pix * 100
 
 
+class SizeScaledGlobalNormMaskDataset(SizeScaledMaskDataset):
+
+    def __init__(self, base_dir, set_type, n_classes=2, crop_dim=256, 
+                 transform=None, stat_norm=True):
+        super(SizeScaledGlobalNormMaskDataset, self).__init__(base_dir,
+                                                              set_type,
+                                                              n_classes,
+                                                              crop_dim,
+                                                              transform,
+                                                              stat_norm)
+        # compute mean/std. dev
+        vals = np.array([])
+        for i in range(self.n_img):
+            im = np.array(self._get_image(i))
+            vals = np.concatenate((vals, im.flatten()))
+        vals = vals.astype(np.float32) / 65535
+        self.mu = np.mean(vals)
+        self.sd = np.std(vals)
+        self.normalize = transforms.Normalize((self.mu), (self.sd))
+        
+    def __getitem__(self, idx):
+        tbl_idx = self.idx_list[idx]
+        img = self.to_tensor(self._get_image(tbl_idx))
+        mask = self.to_tensor(self._get_mask(tbl_idx))
+        # apply transformations
+        if self.trans is not None:
+            comb = torch.cat([img, mask], dim=0)  # concat along channel dim
+            comb = self.trans(comb)
+            img, mask = split_imgmask(comb)
+        # normalize image and return
+        img = self.normalize(img.float() / 65535)
+        return img, mask.long()
+
+    
 def _flatten_list(l):
     """flatten a list of lists into just a list
     """

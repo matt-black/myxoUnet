@@ -20,7 +20,8 @@ from torchvision import transforms
 from torchvision.transforms.functional import center_crop
 
 from unet import UNet
-from data import MaskDataset, SizeScaledMaskDataset
+from data import MaskDataset, SizeScaledMaskDataset, \
+    SizeScaledGlobalNormMaskDataset
 from data import RandomRotateDeformCrop
 import loss
 from util import AvgValueTracker, ProgressShower
@@ -93,19 +94,19 @@ def main(**kwargs):
         transforms.RandomHorizontalFlip(),
         transforms.RandomVerticalFlip(),
         RandomRotateDeformCrop(sigma=5, points=5, crop=crop_dim)])
-    train_data = SizeScaledMaskDataset(args.data, "train", 
-                             args.num_classes,
-                             crop_dim=crop_dim, 
-                             transform=train_trans, 
-                             stat_norm=args.data_statnorm)
+    train_data = SizeScaledGlobalNormMaskDataset(args.data, "train", 
+                                                 args.num_classes,
+                                                 crop_dim=crop_dim, 
+                                                 transform=train_trans, 
+                                                 stat_norm=args.data_statnorm)
     train_load = DataLoader(train_data, batch_size=args.batch_size, 
                             shuffle=True, **datakw)
     if not args.no_test:
-        test_data = SizeScaledMaskDataset(args.data, "test", 
-                                          args.num_classes,
-                                          crop_dim=crop_dim,
-                                          transform=transforms.RandomCrop(crop_dim),
-                                          stat_norm=args.data_statnorm)
+        test_data = SizeScaledGlobalNormMaskDataset(args.data, "test", 
+                                                    args.num_classes,
+                                                    crop_dim=crop_dim,
+                                                    transform=transforms.RandomCrop(crop_dim),
+                                                    stat_norm=args.data_statnorm)
         test_load = DataLoader(test_data, batch_size=args.batch_size,
                                shuffle=True, **datakw)
     
