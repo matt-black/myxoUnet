@@ -2,7 +2,7 @@
 """
 
 # python
-import os
+import os, pwd
 import csv
 import json
 from math import inf
@@ -34,15 +34,25 @@ def main(**kwargs):
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
+
+    # use cuda?
+    use_cuda = torch.cuda.is_available() and (not args.no_cuda)
+    device = torch.device("cuda" if use_cuda else "cpu")
         
     # setup output folder
     if args.save:
         # generate output path
         fldr_name = "{d}_{l}".format(d=date.today().strftime("%Y-%m-%d"),
                                      l=args.loss)
-        args.save_path = os.path.join(os.getcwd(), fldr_name)
+        if use_cuda: #cuda available, assume we're on cluster
+            save_base = os.path.join('/', 'scratch', 'gpfs',
+                                     pwd.getpwuid(os.getuid()).pw_name)
+        else:
+            save_base = os.getcwd()
+        args.save_path = os.path.join(save_base, fldr_name)
     else:
         args.save_path = None
+    
     if args.save_path is not None:
         if not os.path.isdir(args.save_path):
             os.mkdir(args.save_path)
@@ -50,11 +60,7 @@ def main(**kwargs):
             args.save_path = args.save_path + "_" + \
                 "{:d}".format(random.randint(1,1000))
             os.mkdir(args.save_path)
-        
-    # use cuda?
-    use_cuda = torch.cuda.is_available() and (not args.no_cuda)
-    device = torch.device("cuda" if use_cuda else "cpu")
-    
+   
     # setup UNet
     net = UNet(in_channels=1,
                n_classes=args.num_classes,
