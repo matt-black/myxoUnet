@@ -20,7 +20,7 @@ class MaskDataset(torch.utils.data.Dataset):
     """
     """
     def __init__(self, base_dir, set_type, n_classes=2, 
-                 transform=None, nplicates=1, stat_norm=True):
+                 transform=None, stat_global=True):
         # confirm input is ok
         assert set_type in ("train", "test")
         # setup directory & table locations
@@ -31,8 +31,7 @@ class MaskDataset(torch.utils.data.Dataset):
         # dataset length
         self.n_img = len(self.tbl.idx)
         self.n_class = n_classes
-        self.nplicates = nplicates
-        self.stat_norm = stat_norm  # should we normalize by mean/std?
+        
         # setup formatting for input masks
         if n_classes == 4:
             self.msk_fmt = "im{:03d}_j4.png"
@@ -45,28 +44,37 @@ class MaskDataset(torch.utils.data.Dataset):
         # image transforms
         self.to_tensor = transforms.PILToTensor()
         self.trans = transform
+        # global statistics calculation
+        self.stat_global = stat_global
+        if stat_global:
+            vals = np.array([])
+            for i in range(self.n_img):
+                im = np.array(self._get_image(i))
+                vals = np.concatenate((vals, im.flatten()))
+            vals = vals.astype(np.float32) / 65535
+            self.normalize = transforms.Normalize(
+                (np.mean(vals)), (np.std(vals)))
         
     def __len__(self):
-        return self.n_img * self.nplicates
+        return self.n_img
 
     def __getitem__(self, idx):
         real_idx = idx % self.n_img
+        # fetch "raw" nimg, mask
         img = self.to_tensor(self._get_image(real_idx))
-        if self.stat_norm:
-            subval = img.float().mean()
-            denom = img.float().std()
-        else:
-            subval = img.min().float()
-            denom = img.max().float() - subval
-            
         mask = self.to_tensor(self._get_mask(real_idx))
-        # apply transformations
+        # apply transforms to image and mask, then split back out
         if self.trans is not None:
-            comb = torch.cat([img, mask], dim=0)  # concat along channel dim
+            comb = torch.cat ([img, mask], dim=0)
             comb = self.trans(comb)
             img, mask = split_imgmask(comb)
-        # normalize image and return
-        img = (img.float() - subval) / denom
+        # normalize image
+        if self.stat_global:
+            img = self.normalize(img)
+        else:
+            img = (img.float() - img.float().mean()) / \
+                img.float().std()
+        # return
         return img, mask.long()
     
     def _get_image(self, idx):
@@ -95,7 +103,7 @@ class MaskDataset(torch.utils.data.Dataset):
 class SizeScaledMaskDataset(torch.utils.data.Dataset):
     
     def __init__(self, base_dir, set_type, n_classes=2, crop_dim=256, 
-                 transform=None, stat_norm=True):
+                 transform=None, stat_global=True):
         # confirm input is ok
         assert set_type in ("train", "test")
         # setup directory & table locations
@@ -106,7 +114,7 @@ class SizeScaledMaskDataset(torch.utils.data.Dataset):
         # dataset length
         self.n_img = len(self.tbl.idx)
         self.n_class = n_classes
-        self.stat_norm = stat_norm  # should we normalize by mean/std?
+        
         # setup formatting for input masks
         if n_classes == 4:
             self.msk_fmt = "im{:03d}_j4.png"
@@ -126,31 +134,40 @@ class SizeScaledMaskDataset(torch.utils.data.Dataset):
             w, h = Image.open(os.path.join(
                 self.img_dir, "im{:03d}.png").format(
                     self.tbl.idx[idx])).size
-            n_cropz.append(math.floor((w*h)/(crop_dim**2)))
+            n_cropz.append(math.floor((w*h)/(crop_dim**2)))            
         id_list =[[i]*n for (i,n) in zip(range(self.n_img),n_cropz)]
         self.idx_list = _flatten_list(id_list)
-        
+        # global statistics calculation
+        self.stat_global = stat_global
+        if stat_global:
+            vals = np.array([])
+            for i in range(self.n_img):
+                im = np.array(self._get_image(i))
+                vals = np.concatenate((vals, im.flatten()))
+            vals = vals.astype(np.float32) / 65535
+            self.normalize = transforms.Normalize(
+                (np.mean(vals)), (np.std(vals)))
+
     def __len__(self):
         return len(self.idx_list)
     
     def __getitem__(self, idx):
         tbl_idx = self.idx_list[idx]
         img = self.to_tensor(self._get_image(tbl_idx))
-        if self.stat_norm:
-            subval = img.float().mean()
-            denom = img.float().std()
-        else:
-            subval = img.min().float()
-            denom = img.max().float() - subval
-            
         mask = self.to_tensor(self._get_mask(tbl_idx))
         # apply transformations
         if self.trans is not None:
             comb = torch.cat([img, mask], dim=0)  # concat along channel dim
             comb = self.trans(comb)
             img, mask = split_imgmask(comb)
-        # normalize image and return
-        img = (img.float() - subval) / denom
+        # normalize image
+        if self.stat_global:
+            img = self.normalize(img)
+        else:
+            img = (img.float() - img.float().mean()) / \
+                img.float().std()
+            img = (img.float() - subval) / denom
+        # return
         return img, mask.long()
     
     def _get_image(self, idx):
@@ -174,40 +191,6 @@ class SizeScaledMaskDataset(torch.utils.data.Dataset):
             for ci in range(self.n_class):
                 class_tot[ci] += (msk == ci).sum()
         return torch.stack(class_tot) / total_pix * 100
-
-
-class SizeScaledGlobalNormMaskDataset(SizeScaledMaskDataset):
-
-    def __init__(self, base_dir, set_type, n_classes=2, crop_dim=256, 
-                 transform=None, stat_norm=True):
-        super(SizeScaledGlobalNormMaskDataset, self).__init__(base_dir,
-                                                              set_type,
-                                                              n_classes,
-                                                              crop_dim,
-                                                              transform,
-                                                              stat_norm)
-        # compute mean/std. dev
-        vals = np.array([])
-        for i in range(self.n_img):
-            im = np.array(self._get_image(i))
-            vals = np.concatenate((vals, im.flatten()))
-        vals = vals.astype(np.float32) / 65535
-        self.mu = np.mean(vals)
-        self.sd = np.std(vals)
-        self.normalize = transforms.Normalize((self.mu), (self.sd))
-        
-    def __getitem__(self, idx):
-        tbl_idx = self.idx_list[idx]
-        img = self.to_tensor(self._get_image(tbl_idx))
-        mask = self.to_tensor(self._get_mask(tbl_idx))
-        # apply transformations
-        if self.trans is not None:
-            comb = torch.cat([img, mask], dim=0)  # concat along channel dim
-            comb = self.trans(comb)
-            img, mask = split_imgmask(comb)
-        # normalize image and return
-        img = self.normalize(img.float() / 65535)
-        return img, mask.long()
 
     
 def _flatten_list(l):

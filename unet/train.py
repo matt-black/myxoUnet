@@ -20,8 +20,7 @@ from torchvision import transforms
 from torchvision.transforms.functional import center_crop
 
 from unet import UNet
-from data import MaskDataset, SizeScaledMaskDataset, \
-    SizeScaledGlobalNormMaskDataset
+from data import MaskDataset, SizeScaledMaskDataset
 from data import RandomRotateDeformCrop
 import loss
 from util import AvgValueTracker, ProgressShower
@@ -29,7 +28,6 @@ from util import AvgValueTracker, ProgressShower
 
 def main(**kwargs):
     args = argparse.Namespace(**kwargs)
-
     # random seed?
     if args.seed is not None:
         random.seed(args.seed)
@@ -100,19 +98,32 @@ def main(**kwargs):
         transforms.RandomHorizontalFlip(),
         transforms.RandomVerticalFlip(),
         RandomRotateDeformCrop(sigma=5, points=5, crop=crop_dim)])
-    train_data = SizeScaledGlobalNormMaskDataset(args.data, "train", 
-                                                 args.num_classes,
-                                                 crop_dim=crop_dim, 
-                                                 transform=train_trans, 
-                                                 stat_norm=args.data_statnorm)
+    if args.data_size_scale:
+        train_data = SizeScaledMaskDataset(args.data, "train",
+                                           n_classes=args.num_classes,
+                                           crop_dim=args.crop_dim,
+                                           transform=train_trans,
+                                           stat_global=args.data_global_stats)
+    else:
+        train_data = MaskDataset(args.data, "train",
+                                 n_classes=args.num_classes,
+                                 transform=train_trans,
+                                 stat_global=args.data_global_stats)
     train_load = DataLoader(train_data, batch_size=args.batch_size, 
                             shuffle=True, **datakw)
     if not args.no_test:
-        test_data = SizeScaledGlobalNormMaskDataset(args.data, "test", 
-                                                    args.num_classes,
-                                                    crop_dim=crop_dim,
-                                                    transform=transforms.RandomCrop(crop_dim),
-                                                    stat_norm=args.data_statnorm)
+        test_trans = transforms.RandomCrop(crop_dim)
+        if args.data_size_scale:
+            test_data = SizeScaledMaskDataset(args.data, "test",
+                                              n_classes=args.num_classes,
+                                              crop_dim=args.crop_dim,
+                                              transform=test_trans,
+                                              stat_global=args.data_global_stats)
+        else:
+            test_data = MaskDataset(args.data, "test",
+                                     n_classes=args.num_classes,
+                                     transform=test_trans,
+                                     stat_global=args.data_global_stats)
         test_load = DataLoader(test_data, batch_size=args.batch_size,
                                shuffle=True, **datakw)
     
@@ -290,17 +301,16 @@ if __name__ == "__main__":
     # data/loss parameters
     parser.add_argument("-d", "--data", type=str, required=True,
                         help="path to data folder")
+    parser.add_argument("-dss", "--data-size-scale", action="store_true", default=False,
+                        help="use size-scaled datasets")
+    parser.add_argument("-dgs", "--data-global-stats", action="store_true", default=False,
+                        help="use global-statistics based normalization")
     parser.add_argument("-l", "--loss", type=str, default="ce",
                         help="type of loss function")
     parser.add_argument("-c", "--num-classes", type=int, default=2,
                         choices=[2,3,4], help="number of semantic classes")
     parser.add_argument("-cs", "--crop-size", type=int, default=256,
                         help="size of region to crop from original images")
-    parser.add_argument("-dn", "--data-nplicates", type=int, default=1,
-                        help="number of times to replicate base data in dataset")
-    parser.add_argument("-ds", "--data-statnorm",
-                        action="store_true", default=True,
-                        help="normalize images by mean/std instead of just [0,1]")
     parser.add_argument("--sgd", action="store_true", default=False,
                         help="use SGD instead of Adam")
     parser.add_argument("--no-test", action="store_true", default=False,
