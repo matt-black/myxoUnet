@@ -25,10 +25,10 @@ from util import overlap_tile
 parser = argparse.ArgumentParser(description="UNet for full frames of Katie's data")
 
 parser.add_argument("-f", "--folder", type=str,
-                    default="../../expts/2021-08-07_wce_256", 
+                    default="/Users/kcopenhagen/Documents/unet/2021-08-30_wce/", 
                     help="path to training output folder")
 parser.add_argument("-m", "--mat", type=str, 
-                    default="../supp/katie_monolayer_08_06_2021.mat",
+                    default="/Users/kcopenhagen/Documents/MATLAB/gitstuff/myxoUnet/supp/cellLabeler/labaled_cells_08_06_2021.mat",
                     help="matlab file")
 args = parser.parse_args()
 

@@ -2,16 +2,18 @@ clear, clc, close all
 %% load data
 load (fullfile (pwd, 'analyze_kc_fullframes.mat'))
 I = uint16 (I);  % images are actually uint16
-P = P > 0;  % these are cell masks
+P = P == 1;  % these are cell masks
 
 %% example
-ix = 8;
+ix = 1;
 
 img = squeeze (I(ix,:,:));
 msk = squeeze (P(ix,:,:));
 
 figure(1), clf
 imshowpair (img, msk, 'montage')
+
+%%
 
 figure(1)
 imshow (img), hold on
