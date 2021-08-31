@@ -70,7 +70,7 @@ class MaskDataset(torch.utils.data.Dataset):
             img, mask = split_imgmask(comb)
         # normalize image
         if self.stat_global:
-            img = self.normalize(img)
+            img = self.normalize(img.float())
         else:
             img = (img.float() - img.float().mean()) / \
                 img.float().std()
@@ -162,7 +162,7 @@ class SizeScaledMaskDataset(torch.utils.data.Dataset):
             img, mask = split_imgmask(comb)
         # normalize image
         if self.stat_global:
-            img = self.normalize(img)
+            img = self.normalize(img.float())
         else:
             img = (img.float() - img.float().mean()) / \
                 img.float().std()
