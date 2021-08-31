@@ -1,0 +1,3 @@
+These files are from this git repo: https://github.com/torkian/vk4-python-driver/
+
+cloned and then copied here on 30 aug 2021
