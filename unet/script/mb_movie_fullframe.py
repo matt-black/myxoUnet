@@ -3,7 +3,6 @@
 # %% imports
 # python
 import os, sys
-import csv
 import json
 import argparse
 
@@ -13,7 +12,6 @@ import torchvision.transforms.functional as F
 
 # science libs
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
@@ -22,6 +20,7 @@ sys.path.insert(1, os.path.abspath(os.path.join('..')))
 from train import load_checkpoint
 from data import MaskDataset
 from util import overlap_tile
+
 sys.path.insert(1, os.path.abspath(os.path.join('..','..','supp')))
 import vk4extract.vk4extract as vk4e
 
