@@ -63,6 +63,8 @@ def main(**kwargs):
     net, _ = load_checkpoint(os.path.join(args.checkpoint, "model.pth"), 
                              train_args)
     net = net.to(device)
+    if not args.quiet:
+        print("made net, transferred to device")
     
     # if we computer global stats, need to figure out normalization scheme
     if train_args.data_global_stats:
@@ -71,16 +73,22 @@ def main(**kwargs):
         dset = MaskDataset(args.training_data, "train", 
                            train_args.num_classes, None, True)
         normalize = dset.normalize
+        if not args.quiet:
+            print("computed normalization transform")
     
     if args.data_format == "ktl":  # ktlapp style VK4 + frameTimeZ csv
         # read in frameTimeZ csv
         frTZ = read_csv(os.path.join(args.data, "frameTimeZ.csv"))
         max_fr = max(frTZ["frame"])
+
+        if not args.quiet:
+            print("loaded frameTimeZ, will process {:d} frames".format(max_fr))
         
         if args.segmask_animation:  # initialize empty "frames" array
             if use_cuda:  # assume headless server, use "Agg" backend
                 import matplotlib
                 matplotlib.use("Agg")
+                
             fig = plt.figure(figsize=(12,9))
             frames = []
         

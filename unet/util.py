@@ -121,7 +121,7 @@ def overlap_tile(img, net, crop_size, pad_size, output="prob", **kwargs):
             for c in range(0, img.shape[-1], crop_size):
                 tile = TF.crop(img_pad, r, c, tile_size, tile_size)
                 tile_prob = F.softmax(net(tile), dim=1)
-                prob[:,r+crop_size,c+crop_size] = tile_prob.squeeze(0)
+                prob[:,r:r+crop_size,c:c+crop_size] = tile_prob.squeeze(0)
         return prob
 
 def process_image(img, net):
