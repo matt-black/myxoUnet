@@ -63,7 +63,7 @@ def _ensure4d(img):
     else:
         raise Exception("dont know how to handle >4d inputs")
 
-def overlap_tile(img, net, crop_size, pad_size, tile_norm="none"):
+def overlap_tile(img, net, crop_size, pad_size):
     """
     predict segmentation of `img` using the overlap-tile strategy
     NOTE: currently only works if the image is mod-divisible by `crop_size` in both dimensions
@@ -79,10 +79,6 @@ def overlap_tile(img, net, crop_size, pad_size, tile_norm="none"):
         dimension of (square) region to be predicted in img
     pad_size : int
         amount to pad `crop_size` by to generate input tiles for network
-    tile_norm : str
-        do tile-level image normalization based on either mapping to
-        either [0,1] ("simp") or by subtracting mean and dividing by std. dev ("stat")
-        for no tile normalization, "none" (default)
     Returns
     -------
     pred : torch.Tensor
@@ -107,15 +103,6 @@ def overlap_tile(img, net, crop_size, pad_size, tile_norm="none"):
         for c in range(0, img.shape[-1], crop_size):
             # adjust for padding size, then crop out tile
             tile = TF.crop(img_pad, r, c, tile_size, tile_size)
-            # do normalization at tile-level, if specified
-            if tile_norm != "none":
-                if tile_norm == "stat":
-                    subval = tile.float().mean()
-                    denom = tile.float().std()
-                elif tile_norm == "simp":
-                    subval = tile.min().float()
-                    denom = tile.max().float() - subval
-                tile = (tile.float() - subval) / denom
             # run tile through net, add it to crop
             tile_pred = F.softmax(net(tile), dim=1)
             pred[r:r+crop_size,c:c+crop_size] = torch.argmax(tile_pred, dim=1)

@@ -2,7 +2,7 @@
 """
 
 # python
-import os
+import os, pwd
 import csv
 import json
 from math import inf
@@ -20,8 +20,7 @@ from torchvision import transforms
 from torchvision.transforms.functional import center_crop
 
 from unet import UNet
-from data import MaskDataset, SizeScaledMaskDataset, \
-    SizeScaledGlobalNormMaskDataset
+from data import MaskDataset, SizeScaledMaskDataset
 from data import RandomRotateDeformCrop
 import loss
 from util import AvgValueTracker, ProgressShower
@@ -29,20 +28,29 @@ from util import AvgValueTracker, ProgressShower
 
 def main(**kwargs):
     args = argparse.Namespace(**kwargs)
-
     # random seed?
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
+
+    # use cuda?
+    use_cuda = torch.cuda.is_available() and (not args.no_cuda)
+    device = torch.device("cuda" if use_cuda else "cpu")
         
     # setup output folder
     if args.save:
         # generate output path
         fldr_name = "{d}_{l}".format(d=date.today().strftime("%Y-%m-%d"),
                                      l=args.loss)
-        args.save_path = os.path.join(os.getcwd(), fldr_name)
+        if use_cuda: #cuda available, assume we're on cluster
+            save_base = os.path.join('/', 'scratch', 'gpfs',
+                                     pwd.getpwuid(os.getuid()).pw_name)
+        else:
+            save_base = os.getcwd()
+        args.save_path = os.path.join(save_base, fldr_name)
     else:
         args.save_path = None
+    
     if args.save_path is not None:
         if not os.path.isdir(args.save_path):
             os.mkdir(args.save_path)
@@ -50,11 +58,7 @@ def main(**kwargs):
             args.save_path = args.save_path + "_" + \
                 "{:d}".format(random.randint(1,1000))
             os.mkdir(args.save_path)
-        
-    # use cuda?
-    use_cuda = torch.cuda.is_available() and (not args.no_cuda)
-    device = torch.device("cuda" if use_cuda else "cpu")
-    
+   
     # setup UNet
     net = UNet(in_channels=1,
                n_classes=args.num_classes,
@@ -94,19 +98,32 @@ def main(**kwargs):
         transforms.RandomHorizontalFlip(),
         transforms.RandomVerticalFlip(),
         RandomRotateDeformCrop(sigma=5, points=5, crop=crop_dim)])
-    train_data = SizeScaledGlobalNormMaskDataset(args.data, "train", 
-                                                 args.num_classes,
-                                                 crop_dim=crop_dim, 
-                                                 transform=train_trans, 
-                                                 stat_norm=args.data_statnorm)
+    if args.data_size_scale:
+        train_data = SizeScaledMaskDataset(args.data, "train",
+                                           n_classes=args.num_classes,
+                                           crop_dim=args.crop_dim,
+                                           transform=train_trans,
+                                           stat_global=args.data_global_stats)
+    else:
+        train_data = MaskDataset(args.data, "train",
+                                 n_classes=args.num_classes,
+                                 transform=train_trans,
+                                 stat_global=args.data_global_stats)
     train_load = DataLoader(train_data, batch_size=args.batch_size, 
                             shuffle=True, **datakw)
     if not args.no_test:
-        test_data = SizeScaledGlobalNormMaskDataset(args.data, "test", 
-                                                    args.num_classes,
-                                                    crop_dim=crop_dim,
-                                                    transform=transforms.RandomCrop(crop_dim),
-                                                    stat_norm=args.data_statnorm)
+        test_trans = transforms.RandomCrop(crop_dim)
+        if args.data_size_scale:
+            test_data = SizeScaledMaskDataset(args.data, "test",
+                                              n_classes=args.num_classes,
+                                              crop_dim=args.crop_dim,
+                                              transform=test_trans,
+                                              stat_global=args.data_global_stats)
+        else:
+            test_data = MaskDataset(args.data, "test",
+                                     n_classes=args.num_classes,
+                                     transform=test_trans,
+                                     stat_global=args.data_global_stats)
         test_load = DataLoader(test_data, batch_size=args.batch_size,
                                shuffle=True, **datakw)
     
@@ -284,17 +301,16 @@ if __name__ == "__main__":
     # data/loss parameters
     parser.add_argument("-d", "--data", type=str, required=True,
                         help="path to data folder")
+    parser.add_argument("-dss", "--data-size-scale", action="store_true", default=False,
+                        help="use size-scaled datasets")
+    parser.add_argument("-dgs", "--data-global-stats", action="store_true", default=False,
+                        help="use global-statistics based normalization")
     parser.add_argument("-l", "--loss", type=str, default="ce",
                         help="type of loss function")
     parser.add_argument("-c", "--num-classes", type=int, default=2,
                         choices=[2,3,4], help="number of semantic classes")
     parser.add_argument("-cs", "--crop-size", type=int, default=256,
                         help="size of region to crop from original images")
-    parser.add_argument("-dn", "--data-nplicates", type=int, default=1,
-                        help="number of times to replicate base data in dataset")
-    parser.add_argument("-ds", "--data-statnorm",
-                        action="store_true", default=True,
-                        help="normalize images by mean/std instead of just [0,1]")
     parser.add_argument("--sgd", action="store_true", default=False,
                         help="use SGD instead of Adam")
     parser.add_argument("--no-test", action="store_true", default=False,
