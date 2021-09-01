@@ -63,7 +63,7 @@ def _ensure4d(img):
     else:
         raise Exception("dont know how to handle >4d inputs")
 
-def overlap_tile(img, net, crop_size, pad_size):
+def overlap_tile(img, net, crop_size, pad_size, output="prob", **kwargs):
     """
     predict segmentation of `img` using the overlap-tile strategy
     NOTE: currently only works if the image is mod-divisible by `crop_size` in both dimensions
@@ -81,8 +81,13 @@ def overlap_tile(img, net, crop_size, pad_size):
         amount to pad `crop_size` by to generate input tiles for network
     Returns
     -------
-    pred : torch.Tensor
-        the segmentation (
+    pred/prob : torch.Tensor
+        either class predictions (pred) or class probabilities (prob)
+        if you specify "pred" the output is a (HxW) torch.LongTensor with pixel
+        values as class ids
+        if you specify "prob" the output is a (NxHxW) torch.FloatTensor with
+        pixel values as class probabilities and each dimension corresponding
+        to a single class
 
     """
     assert img.shape[-2] % crop_size == 0
@@ -97,17 +102,27 @@ def overlap_tile(img, net, crop_size, pad_size):
     img_pad = TF.pad(img, [pad_size, pad_size], padding_mode='reflect')
     tile_size = crop_size + 2*pad_size  # size of tiles input to network
 
-    pred = torch.zeros(img.shape[-2], img.shape[-1],
-                       dtype=torch.int64, device=dev)
-    for r in range(0, img.shape[-2], crop_size):
-        for c in range(0, img.shape[-1], crop_size):
-            # adjust for padding size, then crop out tile
-            tile = TF.crop(img_pad, r, c, tile_size, tile_size)
-            # run tile through net, add it to crop
-            tile_pred = F.softmax(net(tile), dim=1)
-            pred[r:r+crop_size,c:c+crop_size] = torch.argmax(tile_pred, dim=1)
-    return pred
-
+    if output == "pred":
+        pred = torch.zeros(img.shape[-2], img.shape[-1],
+                           dtype=torch.int64, device=dev)
+        for r in range(0, img.shape[-2], crop_size):
+            for c in range(0, img.shape[-1], crop_size):
+                # adjust for padding size, then crop out tile
+                tile = TF.crop(img_pad, r, c, tile_size, tile_size)
+                # run tile through net, add it to crop
+                tile_pred = F.softmax(net(tile), dim=1)
+                pred[r:r+crop_size,c:c+crop_size] = torch.argmax(tile_pred, dim=1)
+        return pred
+    elif output == "prob":
+        num_chan = kwargs["num_classes"]
+        prob = torch.zeros(num_chan, img.shape[-2], img.shape[-1],
+                           dtype=torch.float32, device=dev)
+        for r in range(0, img.shape[-2], crop_size):
+            for c in range(0, img.shape[-1], crop_size):
+                tile = TF.crop(img_pad, r, c, tile_size, tile_size)
+                tile_prob = F.softmax(net(tile), dim=1)
+                prob[:,r:r+crop_size,c:c+crop_size] = tile_prob.squeeze(0)
+        return prob
 
 def process_image(img, net):
     dev = next(net.parameters()).device
