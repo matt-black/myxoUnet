@@ -28,6 +28,11 @@ from util import AvgValueTracker, ProgressShower
 
 def main(**kwargs):
     args = argparse.Namespace(**kwargs)
+
+    # make sure arg combination is valid
+    if args.no_test and args.schedule_learning_rate:
+        raise Exception("can't schedule learning rate without testing")
+    
     # random seed?
     if args.seed is not None:
         random.seed(args.seed)
@@ -139,7 +144,12 @@ def main(**kwargs):
         opt = optim.SGD(net.parameters(), lr=args.learning_rate)
     else:
         opt = optim.Adam(net.parameters(), args.learning_rate)
-    
+    if args.schedule_learning_rate:
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            opt, mode='min', factor=0.25, patience=12, min_lr=6e-5,
+            verbose=None)
+    else:
+        scheduler = None
     # epoch loop
     min_test_loss = inf
     train_losses = []
@@ -165,6 +175,8 @@ def main(**kwargs):
             test_loss, test_cd, test_nd = test(
                 test_load, net, epoch, device,
                 args.crop_size, args.print_freq)
+            if scheduler is not None:
+                scheduler.step(test_loss)
         test_losses.append(test_loss)
         test_cdl.append(test_cd)
         test_ndl.append(test_nd)
@@ -282,12 +294,17 @@ def test(data, model, epoch, device, output_size, prog_disp=1):
     return avgloss.avg, avgcd.avg, avgnd.avg
 
 
-def save_checkpoint(filepath, model, optimizer, epoch):
+def save_checkpoint(filepath, model, optimizer, scheduler, epoch):
     """Save checkpoint to file
     """
+    if scheduler is None:
+        sched_dict = None
+    else:
+        sched_dict = scheduler.state_dict()
     chckpt = {"model" : model.state_dict(), 
               "optimizer" : optimizer.state_dict(), 
-              "epoch" : epoch}
+              "epoch" : epoch,
+              "scheduler" : sched_dict}
     torch.save(chckpt, filepath)
 
     
@@ -311,7 +328,14 @@ def load_checkpoint(filepath, argz):
     # load params from checkpoint
     net.load_state_dict(chkpt["model"])
     opt.load_state_dict(chkpt["optimizer"])
-    return net, opt
+    if chkpt["scheduler"] is not None:
+        sch = optim.lr_scheduler.ReduceLROnPlateau(opt, mode='min',
+                                                   factor=0.25, patience=12,
+                                                   min_lr=6e-5, verbose=True)
+        sch.load_state_dict(chkpt["scheduler"])
+    else:
+        sch = None
+    return net, opt, sch
 
 
 if __name__ == "__main__":
@@ -330,12 +354,14 @@ if __name__ == "__main__":
     parser.add_argument("--no-test", action="store_true", default=False,
                         help="skip test/evaluation at each epoch")
     # training/optimization parameters
-    parser.add_argument("-lr", "--learning-rate", type=float, default=1e-4,
+    parser.add_argument("-lr", "--learning-rate", type=float, default=8e-4,
                         help="learning rate")
     parser.add_argument("-bs", "--batch-size", type=int, default=1,
                         help="batch size")
     parser.add_argument("-e", "--epochs", type=int, default=1,
                         help="number of epochs")
+    parser.add_argument("-slr", "--schedule-learning-rate", action="store_true",
+                        default=False, help="do learning rate scheduling")
     # unet parameters
     parser.add_argument("-ud", "--unet-depth", type=int, default=3,
                         help="depth of the UNet")
