@@ -5,6 +5,10 @@ import torch
 import torch.nn.functional as F
 import torchvision.transforms.functional as TF
 
+import numpy as np
+from scipy import ndimage as ndi
+import skimage.filters as skimf
+from skimage.segmentation import watershed as skimage_watershed
 
 def one_hot(labels, num_class, device, dtype, eps=1e-12):
     """
@@ -73,7 +77,30 @@ def convTranspose2dOutputSize(dim, kernel_size, stride=1, padding=0,
 def conv2dOutputSize(dim, kernel_size, stride=1, padding=0, dilation=1):
     return ((dim + 2 * padding - dilation * (kernel_size - 1) - 1) // stride) \
         + 1
-        
+
+def watershed(p_cell, p_neig,
+              gauss_sigma=(1.5,1.5),
+              rho_mask=0.09,
+              rho_seed=0.5,
+              seed_neig_power=2):
+    """Post-processing watershed for net outputs
+
+    default parameters are those given in paper
+    """
+    # if input is torch tensors, convert to numpy
+    if torch.is_tensor(p_cell):
+        p_cell = p_cell.detach().numpy()
+    if torch.is_tensor(p_neig):
+        p_neig = p_neig.detach().numpy()
+    # apply gaussian blur to predictions
+    phat_cell = skimf.gaussian(p_cell, gauss_sigma)
+    phat_neig = skimf.gaussian(p_neig, gauss_sigma)
+    # find region to flood & seeds for watershed
+    p_mask = phat_cell > rho_mask
+    p_seed = (p_cell - np.power(p_neig, seed_neig_power)) > rho_seed
+    marks, _ = ndi.label(p_seed)
+    return skimage_watershed(-p_cell, markers=marks, mask=p_mask)
+
 
 class AvgValueTracker(object):
     """Computes/stores average & current value

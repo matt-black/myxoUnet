@@ -40,8 +40,7 @@ def main(**kwargs):
     # setup output folder
     if args.save:
         # generate output path
-        fldr_name = "{d}_{l}".format(d=date.today().strftime("%Y-%m-%d"),
-                                     l=args.loss)
+        fldr_name = "dunet_{d}".format(d=date.today().strftime("%Y-%m-%d"))
         if use_cuda: #cuda available, assume we're on cluster
             save_base = os.path.join('/', 'scratch', 'gpfs',
                                      pwd.getpwuid(os.getuid()).pw_name)
@@ -130,9 +129,6 @@ def main(**kwargs):
         test_load = DataLoader(test_data, batch_size=args.batch_size,
                                shuffle=False, **datakw)
     
-    # make loss function
-    crit = DUnetSmoothL1()
-    
     # save input arguments to json file
     if args.save_path is not None:
         with open(os.path.join(args.save_path, "args.json"), "w") as f:
@@ -147,18 +143,31 @@ def main(**kwargs):
     # epoch loop
     min_test_loss = inf
     train_losses = []
+    train_cdl = []
+    train_ndl = []
     test_losses  = []
+    test_cdl = []
+    test_ndl = []
     for epoch in range(args.epochs):
         # training
-        train_loss = train(train_load, net, crit, opt, epoch, device,
-                           args.crop_size, args.print_freq)
+        train_loss, train_cd, train_nd = train(
+            train_load, net, opt, epoch, device,
+            args.crop_size, args.print_freq)
+        # record losses
         train_losses.append(train_loss)
+        train_cdl.append(train_cd)
+        train_ndl.append(train_nd)
         if args.no_test:
             test_loss = 0
+            test_cd = 0
+            test_nd = 0
         else:
-            test_loss = test(test_load, net, crit, epoch, device,
-                             args.crop_size, args.print_freq)
+            test_loss, test_cd, test_nd = test(
+                test_load, net, epoch, device,
+                args.crop_size, args.print_freq)
         test_losses.append(test_loss)
+        test_cdl.append(test_cd)
+        test_ndl.append(test_nd)
         if (test_loss < min_test_loss) and args.save_path is not None:
             if args.no_test:
                 continue
@@ -174,24 +183,36 @@ def main(**kwargs):
     # write losses to csv file
     if args.save_path is not None:
         with open(os.path.join(args.save_path, "losses.csv"), "w") as loss_csv:
-            fieldnames = ["epoch", "train", "test"]
+            fieldnames = ["epoch",
+                          "train", "train_cd", "train_nd",
+                          "test", "test_cd", "test_nd"]
             writer = csv.DictWriter(loss_csv, fieldnames=fieldnames)
             writer.writeheader()
-            for ep, (tr, te) in enumerate (zip(train_losses, test_losses)):
-                writer.writerow({"epoch" : ep, "train" : tr, "test" : te})
-    
+            loss_zip = zip(train_losses, train_cdl, train_ndl,
+                           test_losses, test_cdl, test_ndl)
+            for ep, (tr, trc, trn, te, tec, ten) in enumerate (loss_zip):
+                writer.writerow({"epoch" : ep,
+                                 "train" : tr,
+                                 "train_cd" : trc,
+                                 "train_nd" : trn,
+                                 "test" : te,
+                                 "test_cd" : tec,
+                                 "test_nd" : ten})
     return 0
 
 
-def train(data, model, criterion, optimizer, epoch, device, output_size, 
+def train(data, model, optimizer, epoch, device, output_size, 
           prog_disp=1):
     """per-epoch training loop
     """
     avgloss = AvgValueTracker("Loss", ":.4e")    # loss
+    avgcd = AvgValueTracker("CD Loss", ":.4e")
+    avgnd = AvgValueTracker("ND Loss", ":.4e")
     avgbtme = AvgValueTracker("Time", ":6.3f")  # batch time
     prog = ProgressShower(len(data), [avgloss, avgbtme], 
                           prefix="Epoch: [{}]".format(epoch))
-    
+
+    crit = nn.SmoothL1Loss(reduction="mean")
     model.train()               # switch to train mode
     strt_time = time.time()
     for idx, (img, d_cell, d_neig) in enumerate (data):
@@ -203,30 +224,36 @@ def train(data, model, criterion, optimizer, epoch, device, output_size,
         d_neig = d_neig.to(device)
         # computation
         p_cell, p_neig = model(img)
-
-        loss = criterion(p_cell, d_cell, p_neig, d_neig)
+        # compute loss
+        l_cell = crit(p_cell, d_cell)
+        l_neig = crit(p_neig, d_neig)
+        loss = l_neig + l_cell
         # gradient/SGD step
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         # record
         avgloss.update(loss.item(), img.size(0))
+        avgcd.update(l_cell.item(), img.size(0))
+        avgnd.update(l_neig.item(), img.size(0))
         avgbtme.update(time.time() - strt_time)
         strt_time = time.time()
         # show progress
         if idx % prog_disp == 0:
             prog.display(idx)
-    return avgloss.avg
+    return avgloss.avg, avgcd.avg, avgnd.avg
 
 
-def test(data, model, criterion, epoch, device, output_size, prog_disp=1):
+def test(data, model, epoch, device, output_size, prog_disp=1):
     """per-epoch testing loop
     """
     avgloss = AvgValueTracker("Loss", ":.4e")
+    avgcd = AvgValueTracker("CD Loss", ":.4e")
+    avgnd = AvgValueTracker("ND Loss", ":.4e")
     avgbtme = AvgValueTracker("Time", ":6.3f")
     prog = ProgressShower(len(data), [avgloss, avgbtme], 
                           prefix="Test: ")
-    
+    crit = nn.SmoothL1Loss()
     model.eval()
     strt_time = time.time()
     with torch.no_grad():
@@ -239,15 +266,20 @@ def test(data, model, criterion, epoch, device, output_size, prog_disp=1):
             d_neig = d_neig.to(device)
             # computation
             p_cell, p_neig = model(img)
-            loss = criterion(p_cell, d_cell, p_neig, d_neig)
+            # compute loss
+            l_cell = crit(p_cell, d_cell)
+            l_neig = crit(p_neig, d_neig)
+            loss = l_cell + l_neig
             # record
             avgloss.update(loss.item(), img.size(0))
-            avgbtme.update(time.time()-strt_time)
+            avgcd.update(l_cell.item(), img.size(0))
+            avgnd.update(l_neig.item(), img.size(0))
+            avgbtme.update(time.time() - strt_time)
             strt_time = time.time()
             # show progress
             if idx % prog_disp == 0:
                 prog.display(idx)
-    return avgloss.avg
+    return avgloss.avg, avgcd.avg, avgnd.avg
 
 
 def save_checkpoint(filepath, model, optimizer, epoch):

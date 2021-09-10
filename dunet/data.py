@@ -27,6 +27,7 @@ class MaskDataset(torch.utils.data.Dataset):
         # setup directory & table locations
         self.img_dir = os.path.join(base_dir, set_type, "img")
         self.dst_dir = os.path.join(base_dir, set_type, "dst")
+        self.msk_dir = os.path.join(base_dir, set_type, "msk")
         self.tbl = pd.read_csv(os.path.join(base_dir, 
                                             "{}.csv".format(set_type)))
         # dataset length
@@ -65,6 +66,11 @@ class MaskDataset(torch.utils.data.Dataset):
         img_path = os.path.join(self.img_dir,
                                 "im{:03d}.png".format(self.tbl.idx[idx]))
         return Image.open(img_path)
+
+    def _get_mask(self, idx):
+        msk_path = os.path.join(self.msk_dir,
+                                "im{:03}_clbl.png".format(self.tbl.idx[idx]))
+        return Image.open(msk_path)
 
     def _get_dist(self, idx):
         dst_path = os.path.join(self.dst_dir,
