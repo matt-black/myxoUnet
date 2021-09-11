@@ -20,12 +20,17 @@ from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 
 
-def make_new_maskr(n_class=2, hidden_layer=256, box_detect=300):
+def make_new_maskr(n_class=2, hidden_layer=256, box_detect=300,
+                   backbone_train=False):
     """generate new MaskRCNN model from pretrained ResNet
     """
+    if backbone_train:
+        n_train_back = 1
+    else:
+        n_train_back = None
     # load pretrained model
     model = torchvision.models.detection.maskrcnn_resnet50_fpn(
-        pretrained=True, progress=True, trainable_backbone_layers=None,
+        pretrained=True, progress=True, trainable_backbone_layers=n_train_back,
         box_detections_per_img=box_detect)
 
     # replace box predictor head with new one (to be trained)
@@ -67,29 +72,32 @@ def main(**kwargs):
     # setup gpu/cpu device
     if torch.cuda.is_available():
         device = torch.device('cuda')
+        data_kw = {"num_workers" : 4, "pin_memory" : True}
     else:
         device = torch.device('cpu')
-    
+        data_kw = {"num_workers" : 1}
     # setup dataset/loader
     train_trans = torchvision.transforms.Compose([
         torchvision.transforms.RandomHorizontalFlip(),
         torchvision.transforms.RandomVerticalFlip(),
         torchvision.transforms.RandomRotation(degrees=(-15,15)),
         torchvision.transforms.RandomCrop(args.crop_size)])
-    dataset_train = MaskRCNNDataset(args.data, "train", train_trans, false)
-    test_trans = torchvision.transforms.CenterCrop(args.crop_size)
-    dataset_test = MaskRCNNDataset(args.data, "test", test_trans, false)
+    dataset_train = MaskRCNNDataset(args.data, "train", train_trans, False)
     data_train = torch.utils.data.DataLoader(
-        dataset_train, batch_size=2, shuffle=True,
-        num_workers=1, collate_fn=utils.collate_fn)
+        dataset_train, batch_size=args.batch_size, shuffle=True,
+        collate_fn=utils.collate_fn, **data_kw)
+    
+    test_trans = torchvision.transforms.CenterCrop(args.crop_size)
+    dataset_test = MaskRCNNDataset(args.data, "test", test_trans, False)
     data_test = torch.utils.data.DataLoader(
         dataset_test, batch_size=1, shuffle=False,
-        num_workers=1, collate_fn=utils.collate_fn)
+        collate_fn=utils.collate_fn, **data_kw)
 
     # generate model
     net = make_new_maskr(n_class=2,
                          hidden_layer=args.hidden_layer,
-                         box_detect=args.box_detections_per_img)
+                         box_detect=args.box_detections_per_img,
+                         backbone_train=args.train_backbone)
     net = net.to(device)
 
     # setup optimization with lr scheduling
@@ -163,20 +171,26 @@ def load_checkpoint(filepath, argz):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MaskRCNN training script")
-    # data/loss parameters
+    # data parameters
     parser.add_argument("-d", "--data", type=str, required=True,
                         help="path to data folder")
-    parser.add_argument("-e", "--epochs", type=int, default=10,
-                        help="# of training epochs")
     parser.add_argument("-cs", "--crop-size", type=int, default=256,
                         help="dimension of image crops")
+    # training parameters
+    parser.add_argument("-e", "--epochs", type=int, default=10,
+                        help="# of training epochs")
+    parser.add_argument("-bs", "--batch-size", type=int, default=2,
+                        help="batch size for training")
+    # network parameters
     parser.add_argument("-hl", "--hidden-layer", type=int, default=256,
                         help="size of hidden layer")
     parser.add_argument("-bd", "--box-detections-per-img", type=int, default=300,
                         help="# of box detections per image")
+    parser.add_argument("-tb", "--train-backbone", action="store_true", default=False,
+                        help="enable training of final backbone layer")
+    # misc.
     parser.add_argument("-s", "--save", action="store_true", default=False,
-                        help="save final model")
-    
+                        help="save final model")    
     ec = main(**vars(parser.parse_args()))
     exit(ec)
     

@@ -94,8 +94,12 @@ class MaskRCNNDataset(torch.utils.data.Dataset):
         labels = torch.ones((n_vobj,), dtype=torch.int64)
         masks = torch.as_tensor(masks, dtype=torch.uint8)
         img_id = torch.tensor([idx])
-        area = (boxes[:,3] - boxes[:,1]) * \
-            (boxes[:,2] - boxes[:,0])
+        try:
+            area = (boxes[:,3] - boxes[:,1]) * \
+                (boxes[:,2] - boxes[:,0])
+        except:                 # if no objects in FOV
+            print("[WARN] found no objects, so just going to try again")
+            return self.__getitem__(idx) # just retry
         # flag to ignore certain entries
         # TODO: actually need this?
         iscrowd = torch.zeros((n_vobj,), dtype=torch.int64)
