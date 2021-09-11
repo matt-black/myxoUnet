@@ -18,7 +18,8 @@ import elasticdeform.torch as elastic
         
 class MaskRCNNDataset(torch.utils.data.Dataset):
     
-    def __init__(self, base_dir, set_type, transform=None):
+    def __init__(self, base_dir, set_type, transform=None,
+                 stat_global=True):
         # confirm input is ok
         assert set_type in ("train", "test")
         # setup directory & table locations
@@ -31,13 +32,23 @@ class MaskRCNNDataset(torch.utils.data.Dataset):
         # transforms
         self.to_tensor = transforms.PILToTensor()
         self.trans = transform
+
+        self.stat_global = stat_global
+        if stat_global:
+            vals = np.array([])
+            for i in range(self.n_img):
+                im = np.array(self._get_image(i))
+                vals = np.concatenate((vals, im.flatten()))
+            vals = vals.astype(np.float32) / 65535
+            self.normalize = transforms.Normalize(
+                (np.mean(vals)), (np.std(vals)))
         
     def __len__(self):
         return self.n_img
 
     def __getitem__(self, idx):
         # load image and corresponding label mask
-        img = self.to_tensor(self._get_image(idx))
+        img = self.to_tensor(self._get_image(idx)) / 65535
         lbl = self.to_tensor(self._get_lblmask(idx))
         # apply transform
         if self.trans is not None:
@@ -45,9 +56,12 @@ class MaskRCNNDataset(torch.utils.data.Dataset):
             comb = self.trans(comb)
             img, lbl = split_imgmask(comb)
         # normalize image to mean/sd
-        mu = img.float().mean()
-        sd = img.float().std()
-        img = (img.float() - mu) / sd
+        if self.stat_global:
+            img = self.normalize(img)
+        else:
+            mu = img.float().mean()
+            sd = img.float().std()
+            img = transforms.functional.normalize(img, [mu], [sd])
         # map to range [0,1]
         img = (img - img.min()) / \
             (img.max()-img.min())

@@ -24,7 +24,9 @@ def make_new_maskr(n_class=2, hidden_layer=256):
     """generate new MaskRCNN model from pretrained ResNet
     """
     # load pretrained model
-    model = torchvision.models.detection.maskrcnn_resnet50_fpn(pretrained=True)
+    model = torchvision.models.detection.maskrcnn_resnet50_fpn(
+        pretrained=True, progress=True, num_classes=n_class,
+        trainable_backbone_layers=None, box_detections_per_img=1000)
 
     # replace box predictor head with new one (to be trained)
     in_feat = model.roi_heads.box_predictor.cls_score.in_features
@@ -36,6 +38,7 @@ def make_new_maskr(n_class=2, hidden_layer=256):
                                                        hidden_layer,
                                                        n_class)
     return model
+
 
 
 def main(**kwargs):
