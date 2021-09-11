@@ -73,26 +73,32 @@ class MaskRCNNDataset(torch.utils.data.Dataset):
         obj_ids = obj_ids[1:]   # first id is background
         n_obj = len(obj_ids)
         # generate masks for each individual object
-        masks = lbl == obj_ids[:, None, None]
+        pmsks = lbl == obj_ids[:, None, None]
         # figure out bounding boxes for each object
         boxes = []
+        masks = []
+        n_vobj = 0
         for i in range(n_obj):
-            pos = np.where(masks[i])
+            pos = np.where(pmsks[i])
             xmin = np.min(pos[1])
             xmax = np.max(pos[1])
             ymin = np.min(pos[0])
             ymax = np.max(pos[0])
-            boxes.append([xmin, ymin, xmax, ymax])
+            # TODO: figure out why i need to do this to filter out bad boxes
+            if xmin != xmax and ymin != ymax:
+                masks.append(pmsks[i])
+                boxes.append([xmin, ymin, xmax, ymax])
+                n_vobj += 1
         # convert everything to torch tensor
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
-        labels = torch.ones((n_obj,), dtype=torch.int64)
+        labels = torch.ones((n_vobj,), dtype=torch.int64)
         masks = torch.as_tensor(masks, dtype=torch.uint8)
         img_id = torch.tensor([idx])
         area = (boxes[:,3] - boxes[:,1]) * \
             (boxes[:,2] - boxes[:,0])
         # flag to ignore certain entries
         # TODO: actually need this?
-        iscrowd = torch.zeros((n_obj,), dtype=torch.int64)
+        iscrowd = torch.zeros((n_vobj,), dtype=torch.int64)
 
         # formulate output target dictionary
         target = {

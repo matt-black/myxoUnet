@@ -20,13 +20,13 @@ from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 
 
-def make_new_maskr(n_class=2, hidden_layer=256):
+def make_new_maskr(n_class=2, hidden_layer=256, box_detect=300):
     """generate new MaskRCNN model from pretrained ResNet
     """
     # load pretrained model
     model = torchvision.models.detection.maskrcnn_resnet50_fpn(
-        pretrained=True, progress=True, num_classes=n_class,
-        trainable_backbone_layers=None, box_detections_per_img=1000)
+        pretrained=True, progress=True, trainable_backbone_layers=None,
+        box_detections_per_img=box_detect)
 
     # replace box predictor head with new one (to be trained)
     in_feat = model.roi_heads.box_predictor.cls_score.in_features
@@ -71,8 +71,14 @@ def main(**kwargs):
         device = torch.device('cpu')
     
     # setup dataset/loader
-    dataset_train = MaskRCNNDataset(args.data, "train", None)
-    dataset_test = MaskRCNNDataset(args.data, "test", None)
+    train_trans = torchvision.transforms.Compose([
+        torchvision.transforms.RandomHorizontalFlip(),
+        torchvision.transforms.RandomVerticalFlip(),
+        torchvision.transforms.RandomRotation(degrees=(-15,15)),
+        torchvision.transforms.RandomCrop(args.crop_size)])
+    dataset_train = MaskRCNNDataset(args.data, "train", train_trans, false)
+    test_trans = torchvision.transforms.CenterCrop(args.crop_size)
+    dataset_test = MaskRCNNDataset(args.data, "test", test_trans, false)
     data_train = torch.utils.data.DataLoader(
         dataset_train, batch_size=2, shuffle=True,
         num_workers=1, collate_fn=utils.collate_fn)
@@ -82,7 +88,8 @@ def main(**kwargs):
 
     # generate model
     net = make_new_maskr(n_class=2,
-                         hidden_layer=256)
+                         hidden_layer=args.hidden_layer,
+                         box_detect=args.box_detections_per_img)
     net = net.to(device)
 
     # setup optimization with lr scheduling
@@ -161,6 +168,12 @@ if __name__ == "__main__":
                         help="path to data folder")
     parser.add_argument("-e", "--epochs", type=int, default=10,
                         help="# of training epochs")
+    parser.add_argument("-cs", "--crop-size", type=int, default=256,
+                        help="dimension of image crops")
+    parser.add_argument("-hl", "--hidden-layer", type=int, default=256,
+                        help="size of hidden layer")
+    parser.add_argument("-bd", "--box-detections-per-img", type=int, default=300,
+                        help="# of box detections per image")
     parser.add_argument("-s", "--save", action="store_true", default=False,
                         help="save final model")
     
