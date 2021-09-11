@@ -28,6 +28,12 @@ from util import AvgValueTracker, ProgressShower
 
 def main(**kwargs):
     args = argparse.Namespace(**kwargs)
+    # make sure lr-scheduling is valid
+    if len(args.reduce_lr_plateau) > 0 and len(args.step_lr) > 0:
+        raise Exception("cant reduce on plateau and use step-lr")
+    if len(args.reduce_lr_plateau) > 0 and args.no_test:
+        raise Exception("cant reduce on plateau without a testing")
+    
     # random seed?
     if args.seed is not None:
         random.seed(args.seed)
@@ -159,7 +165,25 @@ def main(**kwargs):
         opt = optim.SGD(net.parameters(), lr=args.learning_rate)
     else:
         opt = optim.Adam(net.parameters(), args.learning_rate)
-    
+    # setup learning rate scheduler
+    if len(args.step_lr) == 0 and len(args.reduce_lr_plateau) == 0:
+        scheduler = None
+    elif len(args.step_lr) > 0:
+        params = args.step_lr.split(",")
+        scheduler = optim.lr_scheduler.StepLR(opt,
+                                              step_size=int(params[0]),
+                                              gamma=float(params[1]),
+                                              verbose=True)
+    else:
+        params = args.reduce_lr_plateau.split(",")
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(opt,
+                                                         mode='min',
+                                                         factor=float(params[0]),
+                                                         patience=int(params[1]),
+                                                         threshold=float(params[2]),
+                                                         threshold_mode='rel',
+                                                         verbose=True)
+        
     # epoch loop
     min_test_loss = inf
     train_losses = []
@@ -169,12 +193,22 @@ def main(**kwargs):
         train_loss = train(train_load, net, crit, opt, epoch, device,
                            args.crop_size, args.print_freq)
         train_losses.append(train_loss)
+        # do testing
         if args.no_test:
             test_loss = 0
         else:
             test_loss = test(test_load, net, crit, epoch, device,
                              args.crop_size, args.print_freq)
         test_losses.append(test_loss)
+        # do scheduling
+        if scheduler is not None:
+            if len(args.reduce_lr_plateau) > 0:  # ReduceLROnPlateau
+                dyn_thresh = min_test_loss * (1 - scheduler.threshold)
+                print("Dynamic Threshold: {:4e}".format(dyn_thresh))
+                scheduler.step(test_loss)
+            else:               # must be StepLR
+                scheduler.step()
+        
         if (test_loss < min_test_loss) and args.save_path is not None:
             if args.no_test:
                 continue
@@ -318,6 +352,10 @@ if __name__ == "__main__":
     # training/optimization parameters
     parser.add_argument("-lr", "--learning-rate", type=float, default=1e-4,
                         help="learning rate")
+    parser.add_argument("-rlrp", "--reduce-lr-plateau", type=str, default="",
+                        help="reduce learning rate when test loss plateaus, form:'factor,patience,threshold'")
+    parser.add_argument("-slr", "--step-lr", type=str, default="",
+                        help="step learning rate parameters of form 'step_size,gamma'"
     parser.add_argument("-bs", "--batch-size", type=int, default=1,
                         help="batch size")
     parser.add_argument("-e", "--epochs", type=int, default=1,
