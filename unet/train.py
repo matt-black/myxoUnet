@@ -355,7 +355,7 @@ if __name__ == "__main__":
     parser.add_argument("-rlrp", "--reduce-lr-plateau", type=str, default="",
                         help="reduce learning rate when test loss plateaus, form:'factor,patience,threshold'")
     parser.add_argument("-slr", "--step-lr", type=str, default="",
-                        help="step learning rate parameters of form 'step_size,gamma'"
+                        help="step learning rate parameters of form 'step_size,gamma'")
     parser.add_argument("-bs", "--batch-size", type=int, default=1,
                         help="batch size")
     parser.add_argument("-e", "--epochs", type=int, default=1,
