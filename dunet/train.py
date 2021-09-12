@@ -184,13 +184,13 @@ def main(**kwargs):
             if args.no_test:
                 continue
             save_checkpoint(os.path.join(args.save_path, "model.pth"),
-                            net, opt, epoch)
+                            net, opt, scheduler, epoch)
             min_test_loss = test_loss
             print("saved checkpoint")
     
     if args.no_test:  # just save final model
         save_checkpoint(os.path.join(args.save_path, "model.pth"),
-                        net, opt, args.epochs-1)
+                        net, opt, scheduler, args.epochs-1)
     
     # write losses to csv file
     if args.save_path is not None:
