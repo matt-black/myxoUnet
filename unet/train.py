@@ -100,10 +100,18 @@ def main(**kwargs):
     if not (os.path.isdir(args.data)):
         raise Exception("specified data directory doesn't exist")
     datakw = {"num_workers" : 1, "pin_memory" : True} if use_cuda else {}
-    train_trans = transforms.Compose([
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomVerticalFlip(),
-        RandomRotateDeformCrop(sigma=5, points=5, crop=crop_dim)])
+    if args.do_deform_transform:
+        train_trans = transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip(),
+            RandomRotateDeformCrop(sigma=5, points=5, crop=crop_dim)])
+    else:
+        train_trans = transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip(),
+            transforms.RandomRotation(degrees=(-15,15)),
+            transforms.RandomCrop(crop_dim)])
+    
     if args.data_size_scale:
         train_data = SizeScaledMaskDataset(args.data, "train",
                                            n_classes=args.num_classes,
@@ -213,13 +221,13 @@ def main(**kwargs):
             if args.no_test:
                 continue
             save_checkpoint(os.path.join(args.save_path, "model.pth"),
-                            net, opt, epoch)
+                            net, opt, scheduler, epoch)
             min_test_loss = test_loss
             print("saved checkpoint")
     
     if args.no_test:  # just save final model
         save_checkpoint(os.path.join(args.save_path, "model.pth"),
-                        net, opt, args.epochs-1)
+                        net, opt, scheduler, args.epochs-1)
     
     # write losses to csv file
     if args.save_path is not None:
@@ -295,11 +303,12 @@ def test(data, model, criterion, epoch, device, output_size, prog_disp=1):
     return avgloss.avg
 
 
-def save_checkpoint(filepath, model, optimizer, epoch):
+def save_checkpoint(filepath, model, optimizer, scheduler, epoch):
     """Save checkpoint to file
     """
     chckpt = {"model" : model.state_dict(), 
-              "optimizer" : optimizer.state_dict(), 
+              "optimizer" : optimizer.state_dict(),
+              "scheduler", scheduler.state_dict(),
               "epoch" : epoch}
     torch.save(chckpt, filepath)
 
@@ -325,7 +334,27 @@ def load_checkpoint(filepath, argz):
     # load params from checkpoint
     net.load_state_dict(chkpt["model"])
     opt.load_state_dict(chkpt["optimizer"])
-    return net, opt
+    # handle the scheduler
+    if len(argz.reduce_lr_plateau) > 0:
+        params = args.reduce_lr_plateau.split(",")
+        sch = optim.lr_scheduler.ReduceLROnPlateau(opt,
+                                                   mode='min',
+                                                   factor=float(params[0]),
+                                                   patience=int(params[1]),
+                                                   threshold=float(params[2]),
+                                                   threshold_mode='rel',
+                                                   verbose=True)
+        sch.load_state_dict(chkpt["scheduler"])
+    elif len(argz.step_lr) > 0:
+        params = argz.step_lr.split(",")
+        sch = optim.lr_scheduler.StepLR(opt,
+                                        step_size=int(params[0]),
+                                        gamma=float(params[1]),
+                                        verbose=True)
+        sch.load_state_dict(chkpt["scheduler"])
+    else:
+        sch = None
+    return net, opt, sch
 
             
 if __name__ == "__main__":
@@ -339,6 +368,8 @@ if __name__ == "__main__":
                         help="use size-scaled datasets")
     parser.add_argument("-dgs", "--data-global-stats", action="store_true", default=False,
                         help="use global-statistics based normalization")
+    parser.add_argument("-dd", "--do-deform-transform", action="store_true", default=False,
+                        help="do elastic deformation for data augmentation")
     parser.add_argument("-l", "--loss", type=str, default="ce",
                         help="type of loss function")
     parser.add_argument("-c", "--num-classes", type=int, default=2,
