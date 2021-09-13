@@ -10,13 +10,14 @@ import torch.nn.functional as F
 
 class DUnet(nn.Module):
     def __init__(
-        self,
-        in_channels=1,
-        depth=5,
-        wf=6,
-        padding=True,
-        batch_norm=True,
-        up_mode='upconv',
+            self,
+            in_channels=1,
+            depth=5,
+            wf=6,
+            padding=True,
+            batch_norm=True,
+            up_mode='upconv',
+            down_mode='conv'
     ):
         """
         Implementation of KIT-Sch-GE / 2021 Segmentation Challenge Dual U-Net
@@ -41,27 +42,39 @@ class DUnet(nn.Module):
         """
         super(DUnet, self).__init__()
         assert up_mode in ('upconv', 'upsample')
+        assert down_mode in ('conv', 'maxpool')
         self.padding = padding
         self.depth = depth
         prev_channels = in_channels
 
         # the downsampling path
         self.down_path = nn.ModuleList()
+        self.down_conv = nn.ModuleList()
         for i in range(depth):
             self.down_path.append(
                 UNetConvBlock(prev_channels, 2 ** (wf + i), padding, batch_norm)
             )
             prev_channels = 2 ** (wf + i)
-
+            if i != (depth-1):
+                # downsampling mode is either a conv or space-equivalent maxpool
+                if down_mode == 'conv':
+                    self.down_conv.append(
+                        nn.Conv2d(prev_channels, prev_channels,
+                                  kernel_size=3, stride=2)
+                else:
+                    self.down_conv.append(nn.MaxPool2d(2))
+        
         # the upsampling path for cell distances
         self.up_path_cd = nn.ModuleList()
         self.up_path_nd = nn.ModuleList()
         for i in reversed(range(depth - 1)):
             self.up_path_cd.append(
-                UNetUpBlock(prev_channels, 2 ** (wf + i), up_mode, padding, batch_norm)
+                UNetUpBlock(prev_channels, 2 ** (wf + i),
+                            up_mode, padding, batch_norm)
             )
             self.up_path_nd.append(
-                UNetUpBlock(prev_channels, 2 ** (wf + i), up_mode, padding, batch_norm)
+                UNetUpBlock(prev_channels, 2 ** (wf + i),
+                            up_mode, padding, batch_norm)
             )
             prev_channels = 2 ** (wf + i)
         self.last_cd = nn.Conv2d(prev_channels, 1, kernel_size=1)
@@ -69,11 +82,11 @@ class DUnet(nn.Module):
 
     def forward(self, x):
         blocks = []
-        for i, down in enumerate(self.down_path):
+        for i, (down, samp) in enumerate(zip(self.down_path, self.down_conv)):
             x = down(x)
             if i != len(self.down_path) - 1:
                 blocks.append(x)
-                x = F.max_pool2d(x, 2)
+                x = samp(x)     # downsampling step
         y = x
         for i, (up_cd, up_nd) in enumerate(zip(self.up_path_cd, self.up_path_nd)):
             x = up_cd(x, blocks[-i - 1])
