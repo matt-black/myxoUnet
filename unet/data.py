@@ -49,9 +49,9 @@ class MaskDataset(torch.utils.data.Dataset):
         if stat_global:
             vals = np.array([])
             for i in range(self.n_img):
-                im = np.array(self._get_image(i))
+                im = self.to_tensor(self._get_image(i))
+                im = norm2zero1(im).numpy()
                 vals = np.concatenate((vals, im.flatten()))
-            vals = vals.astype(np.float32) / 65535
             self.normalize = transforms.Normalize(
                 (np.mean(vals)), (np.std(vals)))
         
@@ -68,6 +68,7 @@ class MaskDataset(torch.utils.data.Dataset):
             comb = torch.cat ([img, mask], dim=0)
             comb = self.trans(comb)
             img, mask = split_imgmask(comb)
+        img = norm2zero1(img)
         # normalize image
         if self.stat_global:
             img = self.normalize(img.float())
@@ -277,3 +278,11 @@ class RgbLabelToMask(object):
     
     def __repr__(self):
         return self.__class__().__name__ + "()"
+
+
+def norm2zero1(img_tens):
+    """Normalize input image to range [0,1]
+    """
+    minval = img_tens.min().float()
+    maxval = img_tens.max().float()
+    return (img_tens.float() - minval) / (maxval - minval)
