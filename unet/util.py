@@ -90,11 +90,22 @@ def overlap_tile(img, net, crop_size, pad_size, output="prob", **kwargs):
         to a single class
 
     """
-    assert img.shape[-2] % crop_size == 0
-    assert img.shape[-1] % crop_size == 0
     # unsqueeze input image to make it work with the net
     # (net wants BxCxHxW)
     img = _ensure4d(img)
+    output_shape = [img.shape[-2], img.shape[-1]]
+
+    # if crop doesn't cleanly fit into image size, pad image so it does
+    if ((img.shape[-1] % crop_size) > 0) or ((img.shape[-2] % crop_size) > 0):
+        if (img.shape[-1] % crop_size) > 0: # need to pad in row dimension
+            col_pad = (crop_size - (img.shape[-1] % crop_size)) // 2
+        else:
+            col_pad = 0
+        if (img.shape[-2] % crop_size) > 0: # need to pad in col dimension
+            row_pad = (crop_size - (img.shape[-2] % crop_size)) // 2
+        else:
+            row_pad = 0
+        img = TF.pad(img, [col_pad, row_pad], padding_mode='reflect')
     
     # figure out which device stuff is on
     dev = next(net.parameters()).device
@@ -112,7 +123,7 @@ def overlap_tile(img, net, crop_size, pad_size, output="prob", **kwargs):
                 # run tile through net, add it to crop
                 tile_pred = F.softmax(net(tile), dim=1)
                 pred[r:r+crop_size,c:c+crop_size] = torch.argmax(tile_pred, dim=1)
-        return pred
+        return TF.center_crop(pred, output_shape)
     elif output == "prob":
         num_chan = kwargs["num_classes"]
         prob = torch.zeros(num_chan, img.shape[-2], img.shape[-1],
@@ -122,7 +133,7 @@ def overlap_tile(img, net, crop_size, pad_size, output="prob", **kwargs):
                 tile = TF.crop(img_pad, r, c, tile_size, tile_size)
                 tile_prob = F.softmax(net(tile), dim=1)
                 prob[:,r:r+crop_size,c:c+crop_size] = tile_prob.squeeze(0)
-        return prob
+        return TF.center_crop(prob, output_shape)
 
 def process_image(img, net):
     dev = next(net.parameters()).device
