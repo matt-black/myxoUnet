@@ -338,6 +338,32 @@ def dssim_loss(pred, target, window_size,
     return (1- ssim(pred, target, window_size, reduction, maxval)) / 2
 
 
+def gaussian(window_size, sigma):
+    def gauss_fcn(x):
+        return -(x - window_size // 2)**2 / float(2 * sigma**2)
+    gauss = torch.stack(
+        [torch.exp(torch.tensor(gauss_fcn(x)))
+         for x in range(window_size)])
+    return gauss / gauss.sum()
+
+
+def get_gaussian_kernel(ksize: int, sigma: float) -> torch.Tensor:
+    r"""Function that returns Gaussian filter coefficients.
+
+    Args:
+        ksize (int): filter size. It should be odd and positive.
+        sigma (float): gaussian standard deviation.
+
+    Returns:
+        Tensor: 1D tensor with gaussian filter coefficients.
+    """
+    if not isinstance(ksize, int) or ksize % 2 == 0 or ksize <= 0:
+        raise TypeError("ksize must be an odd positive integer. Got {}"
+                        .format(ksize))
+    window_1d: torch.Tensor = gaussian(ksize, sigma)
+    return window_1d
+
+
 def get_gaussian_kernel2d(ksize: Tuple[int, int],
                           sigma: Tuple[float, float]) -> torch.Tensor:
     r"""Function that returns Gaussian filter matrix coefficients.
@@ -353,18 +379,6 @@ def get_gaussian_kernel2d(ksize: Tuple[int, int],
 
     Shape:
         - Output: :math:`(ksize_x, ksize_y)`
-
-    Examples::
-
-        >>> tgm.image.get_gaussian_kernel2d((3, 3), (1.5, 1.5))
-        tensor([[0.0947, 0.1183, 0.0947],
-                [0.1183, 0.1478, 0.1183],
-                [0.0947, 0.1183, 0.0947]])
-
-        >>> tgm.image.get_gaussian_kernel2d((3, 5), (1.5, 1.5))
-        tensor([[0.0370, 0.0720, 0.0899, 0.0720, 0.0370],
-                [0.0462, 0.0899, 0.1123, 0.0899, 0.0462],
-                [0.0370, 0.0720, 0.0899, 0.0720, 0.0370]])
     """
     if not isinstance(ksize, tuple) or len(ksize) != 2:
         raise TypeError("ksize must be a tuple of length two. Got {}"

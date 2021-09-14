@@ -310,7 +310,7 @@ def save_checkpoint(filepath, model, optimizer, scheduler, epoch):
     """
     chckpt = {"model" : model.state_dict(), 
               "optimizer" : optimizer.state_dict(),
-              "scheduler", scheduler.state_dict(),
+              "scheduler" : scheduler.state_dict(),
               "epoch" : epoch}
     torch.save(chckpt, filepath)
 
