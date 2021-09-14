@@ -1,6 +1,11 @@
-function [ cell_dist, neig_dist, lbl_mask ] = generateDistImgs ( cell_list, img_size, cell_width, neig_strel )
+function [ cell_dist, neig_dist, lbl_mask, bord_mask ] = generateDistImgs ( ...
+    cell_list, img_size, cell_width, bord_strel, neig_strel, norm_dist )
 %GENERATEMASKS 
-    if nargin < 4, neig_strel = []; end
+    if nargin < 6, norm_dist = true;
+        if nargin < 5, neig_strel = []; 
+            if nargin < 4, bord_strel = strel ('square', 3); end
+        end
+    end
     % cell labels
     lbl_mask = zeros (img_size);
     for ii = 1:numel(cell_list)
@@ -22,6 +27,17 @@ function [ cell_dist, neig_dist, lbl_mask ] = generateDistImgs ( cell_list, img_
         indz = sub2ind (img_size, r, c);
         lbl_mask(indz) = ii;
     end
+    % touching mask
+    [cols, rows] = meshgrid (1:img_size(2), 1:img_size(1));
+    touch_mask = arrayfun (...
+        @(r, c) isPixelTouchingClass (r, c, lbl_mask, 4), rows, cols);
+    touch_mask = bwmorph (touch_mask, 'skel');
+
+    cell_mask = (lbl_mask > 0) & not (touch_mask);
+    lbl_mask = bwlabel (cell_mask, 4);
+    
+    [cls3mask, cd_prelim] = augmentBorderClass (cell_mask, bord_strel);
+    bord_mask = cls3mask == 2;
     
     % generate cell/neighbor distances for each cell
     idz = unique (lbl_mask(:));
@@ -34,20 +50,21 @@ function [ cell_dist, neig_dist, lbl_mask ] = generateDistImgs ( cell_list, img_
         this_cell = lbl_mask == id;
         [r, c] = find (this_cell);
         cell_ind = sub2ind (img_size, r, c);
+        % normalize cell distance (above) to [0,1] for cell
+        dvalz = cd_prelim(cell_ind);
+        if norm_dist
+            dvalz = dvalz ./ max (dvalz);
+        end
+        cell_dist(cell_ind) = dvalz;
 
-        % compute distance transform & assign
-        this_cell_dist = bwdist (~this_cell, 'euclidean');
-        cell_dist(cell_ind) = normalizeVector (this_cell_dist(cell_ind));
-        
         % compute neighbor distances (& assign)
         this_neig = lbl_mask > 0 & lbl_mask ~= id;
         this_neig_dist = bwdist (this_neig, 'euclidean');
-        neig_dist_vals = normalizeVector (this_neig_dist(cell_ind));
-        neig_dist(cell_ind) = 1 - neig_dist_vals;
+        % normalize to [0,1] and assign
+        nvalz = this_neig_dist(cell_ind);
+        nvalz = 1 - normalizeVector (nvalz);
+        neig_dist(cell_ind) = nvalz;
     end
-    % HACK: fix this
-    neig_dist(isnan(neig_dist(:))) = 0;
-    cell_dist(isnan(cell_dist(:))) = 0;
     % closing and scaling of neighbor distances
     if not (isempty (neig_strel))
         neig_dist = imclose (neig_dist, neig_strel);
