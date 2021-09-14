@@ -1,14 +1,14 @@
-"""dunet
-"Distance UNET" from 10.1371/journal.pone.0243219
+"""bunet
+"Border UNET" from "Dual U-Net for the Segmentation of Overlapping Glioma"
 
-short story: its a normal unet with a two decoder branches that predicts cell and neighbor distances, respectively
+SEE: https://ieeexplore.ieee.org/abstract/document/8744511
 """
 import torch
 from torch import nn
 import torch.nn.functional as F
 
 
-class DUnet(nn.Module):
+class BUNet(nn.Module):
     def __init__(
             self,
             in_channels=1,
@@ -17,14 +17,11 @@ class DUnet(nn.Module):
             padding=True,
             batch_norm=True,
             up_mode='upconv',
-            down_mode='conv'
+            down_mode='maxpool'
     ):
         """
-        Implementation of KIT-Sch-GE / 2021 Segmentation Challenge Dual U-Net
-        journals.plos.org/plosone/article?id=10.1371/journal.pone.0243219
-
-        Using the default arguments will yield the exact version used
-        in the original paper
+        Implementation of "Dual U-Net for the Segmentation of Overlapping Glioma"
+        https://ieeexplore.ieee.org/abstract/document/8744511
 
         Args:
             in_channels (int): number of input channels
@@ -40,7 +37,7 @@ class DUnet(nn.Module):
                            learned upsampling.
                            'upsample' will use bilinear upsampling.
         """
-        super(DUnet, self).__init__()
+        super(BUNet, self).__init__()
         assert up_mode in ('upconv', 'upsample')
         assert down_mode in ('conv', 'maxpool')
         self.padding = padding
@@ -55,45 +52,53 @@ class DUnet(nn.Module):
                 UNetConvBlock(prev_channels, 2 ** (wf + i), padding, batch_norm)
             )
             prev_channels = 2 ** (wf + i)
-            
             # downsampling mode is either a conv or space-equivalent maxpool
             if down_mode == 'conv':
                 self.down_conv.append(
                     nn.Conv2d(prev_channels, prev_channels,
                               kernel_size=3, stride=2)
+                )
             else:
                 self.down_conv.append(nn.MaxPool2d(2))
         
         # the upsampling path for cell distances
         self.up_path_cd = nn.ModuleList()
-        self.up_path_nd = nn.ModuleList()
-        for i in reversed(range(depth - 1)):
+        self.up_path_bd = nn.ModuleList()
+        for i in reversed(range(depth-1)):
             self.up_path_cd.append(
                 UNetUpBlock(prev_channels, 2 ** (wf + i),
                             up_mode, padding, batch_norm)
             )
-            self.up_path_nd.append(
+            self.up_path_bd.append(
                 UNetUpBlock(prev_channels, 2 ** (wf + i),
                             up_mode, padding, batch_norm)
             )
             prev_channels = 2 ** (wf + i)
         self.last_cd = nn.Conv2d(prev_channels, 1, kernel_size=1)
-        self.last_nd = nn.Conv2d(prev_channels, 1, kernel_size=1)
+        self.last_bd = nn.Conv2d(prev_channels, 2, kernel_size=1)
+        # the fusion block
+        self.fuse = BUNetFusionBlock()
 
     def forward(self, x):
         blocks = []
+        # do downsampling on common path
         for i, (down, samp) in enumerate(zip(self.down_path, self.down_conv)):
             x = down(x)
             if i != len(self.down_path) - 1:
                 blocks.append(x)
-                x = samp(x)     # downsampling step
-        y = x
-        for i, (up_cd, up_nd) in enumerate(zip(self.up_path_cd, self.up_path_nd)):
+                x = samp(x)     # downsampling
+        # now upsample along each parallel path
+        y = x                   # x is cells, y is border
+        for i, (up_cd, up_bd) in enumerate(zip(self.up_path_cd, self.up_path_bd)):
             x = up_cd(x, blocks[-i - 1])
-            y = up_nd(y, blocks[-i - 1])
-        return self.last_cd(x), self.last_nd(y)
+            y = up_bd(y, blocks[-i - 1])
+        x = self.last_cd(x)
+        y = self.last_bd(y)
+        # fusion
+        fused = self.fuse(x, y)
+        return fused, x, y
 
-    
+
 class UNetConvBlock(nn.Module):
     def __init__(self, in_size, out_size, padding, batch_norm):
         super(UNetConvBlock, self).__init__()
@@ -144,3 +149,23 @@ class UNetUpBlock(nn.Module):
         out = self.conv_block(out)
 
         return out
+
+
+class BUNetFusionBlock(nn.Module):
+    
+    def __init__(self):
+        super(BUNetFusionBlock, self).__init__()
+        self.convs = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(64),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(64),
+            nn.Conv2d(64, 2, kernel_size=1)
+        )
+
+    def forward(self, x_c, x_b):
+        # 
+        cat = torch.cat([x_c, x_b], 1)
+        return self.convs(cat)
