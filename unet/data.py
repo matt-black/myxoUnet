@@ -54,6 +54,9 @@ class MaskDataset(torch.utils.data.Dataset):
                 vals = np.concatenate((vals, im.flatten()))
             self.normalize = transforms.Normalize(
                 (np.mean(vals)), (np.std(vals)))
+            self.maxval = (1 - np.mean(vals)) / np.std(vals)
+        else:
+            self.maxval = 1.0
         
     def __len__(self):
         return self.n_img

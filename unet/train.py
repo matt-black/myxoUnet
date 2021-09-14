@@ -160,6 +160,8 @@ def main(**kwargs):
         crit = loss.DiceLoss()
     elif args.loss == "dsc":
         crit = loss.DiceRegularizedCrossEntropy()
+    elif args.loss == "dssim":
+        crit = loss.DSSIMLoss(11, reduction='mean', max_val=train_data.maxval)
     else:
         raise ValueError("invalid loss")
     
