@@ -265,17 +265,12 @@ class SSIM(nn.Module):
             raise ValueError("Invalid img1 shape, we expect BxCxHxW. Got: {}"
                              .format(img1.shape))
         if not len(img2.shape) == 4:
-            raise ValueError("Invalid img2 shape, we expect BxCxHxW. Got: {}"
-                             .format(img2.shape))
-        if not img1.shape == img2.shape:
-            raise ValueError("img1 and img2 shapes must be the same. Got: {}"
-                             .format(img1.shape, img2.shape))
-        if not img1.device == img2.device:
-            raise ValueError("img1 and img2 must be in the same device. Got: {}"
-                             .format(img1.device, img2.device))
-        if not img1.dtype == img2.dtype:
-            raise ValueError("img1 and img2 must be in the same dtype. Got: {}"
-                             .format(img1.dtype, img2.dtype))
+            if len(img2.shape) == 3:
+                img2 = one_hot(img2, img1.size(1), device=img1.device,
+                               dtype=img1.dtype)
+            else:
+                raise ValueError("Invalid img2 shape, we expect BxCxHxW. Got: {}"
+                                 .format(img2.shape))
         # prepare kernel
         b, c, h, w = img1.shape
         tmp_kernel: torch.Tensor = self.window.to(img1.device).to(img1.dtype)
