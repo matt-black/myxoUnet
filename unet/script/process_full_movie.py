@@ -98,6 +98,9 @@ def main(**kwargs):
             fpath = os.path.join(args.data, "img", 
                                  "frame{:06d}.vk4".format(fr))
             lsr = _to_torch(read_vk4image(fpath, 'light'))
+            # normalize to [0,1]
+            lsr = (lsr.float() - lsr.min().float()) / \
+                (lsr.max().float()-lsr.min().float())
             if args.segmask_animation:
                 lsr_uint8 = (lsr * 255).type(torch.ByteTensor).squeeze(0)
             # do image normalization
