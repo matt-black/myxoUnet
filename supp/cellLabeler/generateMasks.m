@@ -1,7 +1,13 @@
-function [ varargout ] = generateMasks ( cell_list, img_size, cell_width, ...
-    aug_se, bothat_se )
+function [ varargout ] = generateMasks ( cell_list, img_size, ...
+    cell_width, aug_se, bothat_se, cell_edge_type )
 %GENERATEMASKS 
-    
+    % make sure edge type is okay (either border or touching)
+    valid_type = cellfun (@(a) strcmp (a, cell_edge_type), ...
+        {'border','touch','touching'});
+    valid_type = any (valid_type);
+    if ~valid_type
+        error ('invalid cell_edge_type');
+    end
     % cell labels
     lbl_mask = zeros (img_size);
     for ii = 1:numel(cell_list)
@@ -35,7 +41,13 @@ function [ varargout ] = generateMasks ( cell_list, img_size, cell_width, ...
     cell_mask = (lbl_mask > 0) & not (touch_mask);
     
     % augmented cell mask
-    cls3mask = augmentTouchingClass (cell_mask, aug_se);
+    if startsWith (cell_edge_type, 't')
+        cls3mask = augmentTouchingClass (cell_mask, aug_se);
+        if nargout == 5, varargout{5} = nan; end
+    else
+        [cls3mask, cell_dist] = augmentBorderClass (cell_mask, aug_se);
+        if nargout == 5, varargout{5} = cell_dist; end
+    end
     varargout{2} = uint8 (cls3mask);
     if nargout == 2, return; end
     

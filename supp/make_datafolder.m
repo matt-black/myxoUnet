@@ -1,16 +1,25 @@
 function [ okay ] = make_datafolder (fldr_name, data_path, pct_train, ...
                                      cell_width, aug_dim, bothat_rad, ...
-                                     save_rgb_labels)
+                                     save_rgb_labels, cell_edge_type)
 %MAKE_DATAFOLDER
     this_path = mfilename ('fullpath');
     [this_fldr, ~, ~] = fileparts (this_path);
     addpath (genpath (fullfile (this_fldr, 'cellLabeler')))
     %% ARGUMENT PROCESSING
-    narginchk (4, 7)
-    if nargin < 7, save_rgb_labels = true;
-        if nargin < 6, bothat_rad = 8;
-            if nargin < 5, aug_dim = 2; end
+    narginchk (4, 8)
+    if nargin < 8, cell_edge_type = 'touch';
+        if nargin < 7, save_rgb_labels = true;
+            if nargin < 6, bothat_rad = 8;
+                if nargin < 5, aug_dim = 3; end
+            end
         end
+    end
+    % make sure edge type is okay (either border or touching)
+    valid_type = cellfun (@(a) strcmp (a, cell_edge_type), ...
+        {'border','touch','touching'});
+    valid_type = any (valid_type);
+    if ~valid_type
+        error ('invalid cell_edge_type');
     end
     %% PROCESS
     % get list of mat files to add
@@ -49,8 +58,9 @@ function [ okay ] = make_datafolder (fldr_name, data_path, pct_train, ...
         % make masks
         aug_se = strel ('square', aug_dim);
         bothat_se = strel ('disk', bothat_rad);
-        [cell_lbl, j3m, j4m, cell_msk] = generateMasks (...
-            cell_list, size (img), cell_width, aug_se, bothat_se);
+        [cell_lbl, j3m, j4m, cell_msk, cell_dst] = generateMasks (...
+            cell_list, size (img), cell_width, aug_se, bothat_se, ...
+            cell_edge_type);
         cell_rgb = label2rgb (cell_lbl, 'jet', 'k', 'shuffle');
         if (any (fi == train_idx))
             write_dir = fullfile (pwd, fldr_name, 'train');
@@ -71,6 +81,10 @@ function [ okay ] = make_datafolder (fldr_name, data_path, pct_train, ...
             sprintf ('im%03d_j3.png', write_idx)));
         imwrite (uint8 (cell_msk), fullfile (write_dir, 'msk', ...
             sprintf ('im%03d_cell.png', write_idx)));
+        if ~isnan(cell_dst)
+            save (fullfile (write_dir, 'msk', ...
+                sprintf('im%03d_cdst.mat', write_idx)), 'cell_dst');
+        end
         if save_rgb_labels  % save (not-quantitative) rgb labels
             imwrite (cell_rgb, fullfile (write_dir, 'msk', ...
                 sprintf ('im%03d_clbl.png', write_idx)));
