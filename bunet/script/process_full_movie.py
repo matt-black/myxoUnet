@@ -9,7 +9,6 @@ import os, sys
 import json
 import argparse
 import random
-import fnmatch
 
 import torch
 from torchvision.utils import draw_segmentation_masks
@@ -98,14 +97,9 @@ def main(**kwargs):
             fpath = os.path.join(args.data, "img", 
                                  "frame{:06d}.vk4".format(fr))
             lsr = _to_torch(read_vk4image(fpath, 'light'))
-            # normalize to [0,1]
-            lsr = (lsr.float() - lsr.min().float()) / \
-                (lsr.max().float()-lsr.min().float())
             if args.segmask_animation:
                 lsr_uint8 = (lsr * 255).type(torch.ByteTensor).squeeze(0)
             # do image normalization
-            lsr = (lsr.float() - lsr.min().float()) / \
-                (lsr.max().float() - lsr.min().float())
             if train_args.data_global_stats:
                 lsr = normalize(lsr)
             else:
@@ -148,75 +142,7 @@ def main(**kwargs):
                 print("animation saved")            
             
     elif args.data_format == "kc":  # katie's format with *.bin
-        
-        # read in times txt
-        dfpath = os.path.join(args.data,"Laser")
-
-        max_fr = len(fnmatch.filter(os.listdir(dfpath),'*.bin'))
- 
-        if not args.quiet:
-            print("loaded times, will process {:d} frames".format(max_fr))
-        
-        if args.segmask_animation:  # initialize empty "frames" array
-            if use_cuda:  # assume headless server, use "Agg" backend
-                import matplotlib
-                matplotlib.use("Agg")
-                
-            fig = plt.figure(figsize=(12,9))
-            frames = []
-        
-        for fr in range(1, max_fr):  # NOTE: skips actual last frame
-            # read in image
-            fpath = os.path.join(args.data, "Laser", 
-                                 "{:06d}.bin".format(fr))
-            lsr = _to_torch(read_binimage(fpath))
-            if args.segmask_animation:
-                lsr_uint8 = (lsr * 255).type(torch.ByteTensor).squeeze(0)
-            # do image normalization
-            lsr = (lsr.float() - lsr.min().float()) / \
-                (lsr.max().float() - lsr.min().float())
-            if train_args.data_global_stats:
-                lsr = normalize(lsr)
-            else:
-                lsr = (lsr - lsr.mean()) / lsr.std()
-            # do full-frame prediction w/ overlap tile method
-            lsr = lsr.to(device)
-            pr = overlap_tile(lsr, net,
-                              crop_size=train_args.crop_size,
-                              pad_size=train_args.input_pad//2,
-                              output=args.output_format,
-                              num_classes=train_args.num_classes)
-            if args.segmask_animation:
-                if args.output_format == "prob":
-                    msk = torch.argmax(pr, dim=0)
-                else:
-                    msk = pr
-                msk = msk.detach().cpu()  # force to cpu
-                I = draw_segmentation_masks(lsr_uint8.repeat(3,1,1),
-                                            torch.stack([msk==i 
-                                                         for i in 
-                                                         range(train_args.num_classes)]),
-                                            alpha=0.4,
-                                            colors=["black","red","blue","green"])
-                frames.append([plt.imshow(F.to_pil_image(I), 
-                                          aspect="auto", 
-                                          animated=True)])
-            # move to numpy and force onto cpu
-            pr = pr.detach().cpu().numpy()
-            # save to *.mat format
-            savemat(os.path.join(args.output, "frame{:06d}.mat".format(fr)),
-                    {"P" : pr})
-            if not args.quiet:
-                print("saved frame {:d}".format(fr))
-        
-        if args.segmask_animation:
-            anim = animation.ArtistAnimation(fig, frames, interval=1000,
-                                             blit=True)
-            anim.save(os.path.join(args.output, "segmask_animation.mp4"))
-            if not args.quiet:
-                print("animation saved")            
-        
-       # raise NotImplementedError("havent done this yet")
+        raise NotImplementedError("havent done this yet")
     else:
         raise Exception("invalid data format {:s}".format(args.data_format))
     
@@ -235,12 +161,6 @@ def read_vk4image(fpath, im_type='light'):
         lsr = np.reshape(lsr_data, (im_hgt, im_wid))
     return lsr
 
-def read_binimage(fpath,im_w=1024,im_h=768):
-    """read in an image from a binary file
-    """
-    lsr_data = np.fromfile(fpath,dtype=np.uint16)
-    lsr = np.reshape(lsr_data,(im_h,im_w),'C')
-    return lsr
 
 def _to_torch(img):
     """convert uint16 image to [0,1] torch.FloatTensor

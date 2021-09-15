@@ -1,26 +1,23 @@
-function [ okay ] = make_datafolder (fldr_name, data_path, pct_train, ...
-                                     cell_width, aug_dim, bothat_rad, ...
-                                     save_rgb_labels, cell_edge_type)
-%MAKE_DATAFOLDER
+function [ okay ] = make_dist_datafolder (fldr_name, data_path, pct_train, ...
+                                           cell_width, bord_strel, neig_strel, ...
+                                           normalize_distances, save_rgb_labels)
+%MAKE_DUNET_DATAFOLDER
     this_path = mfilename ('fullpath');
     [this_fldr, ~, ~] = fileparts (this_path);
     addpath (genpath (fullfile (this_fldr, 'cellLabeler')))
     %% ARGUMENT PROCESSING
-    narginchk (4, 8)
-    if nargin < 8, cell_edge_type = 'touch';
-        if nargin < 7, save_rgb_labels = true;
-            if nargin < 6, bothat_rad = 8;
-                if nargin < 5, aug_dim = 3; end
+    
+    narginchk (3, 8)
+    if nargin < 8, save_rgb_labels = true;
+        if nargin < 7, normalize_distances = true;
+            if nargin < 6, neig_strel = strel ('disk', 3); 
+                if nargin < 5, bord_strel = strel ('square', 3);
+                    if nargin < 4, cell_width = 3; end
+                end
             end
         end
     end
-    % make sure edge type is okay (either border or touching)
-    valid_type = cellfun (@(a) strcmp (a, cell_edge_type), ...
-        {'border','touch','touching'});
-    valid_type = any (valid_type);
-    if ~valid_type
-        error ('invalid cell_edge_type');
-    end
+    
     %% PROCESS
     % get list of mat files to add
     matfilez = dir (data_path);
@@ -40,8 +37,10 @@ function [ okay ] = make_datafolder (fldr_name, data_path, pct_train, ...
     mkdir (fullfile (pwd, fldr_name));
     mkdir (fullfile (pwd, fldr_name, 'train', 'img'));
     mkdir (fullfile (pwd, fldr_name, 'train', 'msk'));
+    mkdir (fullfile (pwd, fldr_name, 'train', 'dst'));
     mkdir (fullfile (pwd, fldr_name, 'test', 'img'));
     mkdir (fullfile (pwd, fldr_name, 'test', 'msk'));
+    mkdir (fullfile (pwd, fldr_name, 'test', 'dst'));
 
     train_dict = {}; test_dict = {};
     curr_train_idx = 1; curr_test_idx = 1;
@@ -56,11 +55,10 @@ function [ okay ] = make_datafolder (fldr_name, data_path, pct_train, ...
         % write uint16 laser file
         img = im2uint16 (data.Image);
         % make masks
-        aug_se = strel ('square', aug_dim);
-        bothat_se = strel ('disk', bothat_rad);
-        [cell_lbl, j3m, j4m, cell_msk, cell_dst] = generateMasks (...
-            cell_list, size (img), cell_width, aug_se, bothat_se, ...
-            cell_edge_type);
+        [cell_dist, neig_dist, cell_lbl, bord_mask] = generateDistImgs (...
+            cell_list, size(img), cell_width, bord_strel, neig_strel, ...
+            normalize_distances);
+        
         cell_rgb = label2rgb (cell_lbl, 'jet', 'k', 'shuffle');
         if (any (fi == train_idx))
             write_dir = fullfile (pwd, fldr_name, 'train');
@@ -75,22 +73,18 @@ function [ okay ] = make_datafolder (fldr_name, data_path, pct_train, ...
         imwrite (img, fullfile (write_dir, 'img', ...
             sprintf ('im%03d.png', write_idx)));
         % write masks
-        imwrite (j4m, fullfile (write_dir, 'msk', ...
-            sprintf ('im%03d_j4.png', write_idx)));
-        imwrite (j3m, fullfile (write_dir, 'msk', ...
-            sprintf ('im%03d_j3.png', write_idx)));
-        imwrite (uint8 (cell_msk), fullfile (write_dir, 'msk', ...
-            sprintf ('im%03d_cell.png', write_idx)));
-        if ~isnan(cell_dst)
-            save (fullfile (write_dir, 'msk', ...
-                sprintf('im%03d_cdst.mat', write_idx)), 'cell_dst');
-        end
+        save (fullfile (write_dir, 'dst', sprintf ('im%03d.mat', write_idx)), ...
+              'cell_dist', 'neig_dist');
         if save_rgb_labels  % save (not-quantitative) rgb labels
             imwrite (cell_rgb, fullfile (write_dir, 'msk', ...
                 sprintf ('im%03d_clbl.png', write_idx)));
+            imwrite (uint8(bord_mask), fullfile (write_dir, 'msk', ...
+                sprintf ('im%03d_bord.png', write_idx)));
         else  % image preserves labels
             imwrite (uint16(cell_lbl), fullfile (write_dir, 'msk', ...
                 sprintf ('im%03d_clbl.png', write_idx)));
+            imwrite (uint8(bord_mask), fullfile (write_dir, 'msk', ...
+                sprintf ('im%03d_bord.png', write_idx)));
         end
         % iterate idx
         if (any (fi == train_idx))

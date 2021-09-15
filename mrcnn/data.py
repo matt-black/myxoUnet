@@ -18,7 +18,8 @@ import elasticdeform.torch as elastic
         
 class MaskRCNNDataset(torch.utils.data.Dataset):
     
-    def __init__(self, base_dir, set_type, transform=None):
+    def __init__(self, base_dir, set_type, transform=None,
+                 stat_global=True):
         # confirm input is ok
         assert set_type in ("train", "test")
         # setup directory & table locations
@@ -31,13 +32,23 @@ class MaskRCNNDataset(torch.utils.data.Dataset):
         # transforms
         self.to_tensor = transforms.PILToTensor()
         self.trans = transform
+
+        self.stat_global = stat_global
+        if stat_global:
+            vals = np.array([])
+            for i in range(self.n_img):
+                im = np.array(self._get_image(i))
+                vals = np.concatenate((vals, im.flatten()))
+            vals = vals.astype(np.float32) / 65535
+            self.normalize = transforms.Normalize(
+                (np.mean(vals)), (np.std(vals)))
         
     def __len__(self):
         return self.n_img
 
     def __getitem__(self, idx):
         # load image and corresponding label mask
-        img = self.to_tensor(self._get_image(idx))
+        img = self.to_tensor(self._get_image(idx)) / 65535
         lbl = self.to_tensor(self._get_lblmask(idx))
         # apply transform
         if self.trans is not None:
@@ -45,9 +56,12 @@ class MaskRCNNDataset(torch.utils.data.Dataset):
             comb = self.trans(comb)
             img, lbl = split_imgmask(comb)
         # normalize image to mean/sd
-        mu = img.float().mean()
-        sd = img.float().std()
-        img = (img.float() - mu) / sd
+        if self.stat_global:
+            img = self.normalize(img)
+        else:
+            mu = img.float().mean()
+            sd = img.float().std()
+            img = transforms.functional.normalize(img, [mu], [sd])
         # map to range [0,1]
         img = (img - img.min()) / \
             (img.max()-img.min())
@@ -59,26 +73,36 @@ class MaskRCNNDataset(torch.utils.data.Dataset):
         obj_ids = obj_ids[1:]   # first id is background
         n_obj = len(obj_ids)
         # generate masks for each individual object
-        masks = lbl == obj_ids[:, None, None]
+        pmsks = lbl == obj_ids[:, None, None]
         # figure out bounding boxes for each object
         boxes = []
+        masks = []
+        n_vobj = 0
         for i in range(n_obj):
-            pos = np.where(masks[i])
+            pos = np.where(pmsks[i])
             xmin = np.min(pos[1])
             xmax = np.max(pos[1])
             ymin = np.min(pos[0])
             ymax = np.max(pos[0])
-            boxes.append([xmin, ymin, xmax, ymax])
+            # TODO: figure out why i need to do this to filter out bad boxes
+            if xmin != xmax and ymin != ymax:
+                masks.append(pmsks[i])
+                boxes.append([xmin, ymin, xmax, ymax])
+                n_vobj += 1
         # convert everything to torch tensor
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
-        labels = torch.ones((n_obj,), dtype=torch.int64)
+        labels = torch.ones((n_vobj,), dtype=torch.int64)
         masks = torch.as_tensor(masks, dtype=torch.uint8)
         img_id = torch.tensor([idx])
-        area = (boxes[:,3] - boxes[:,1]) * \
-            (boxes[:,2] - boxes[:,0])
+        try:
+            area = (boxes[:,3] - boxes[:,1]) * \
+                (boxes[:,2] - boxes[:,0])
+        except:                 # if no objects in FOV
+            print("[WARN] found no objects, so just going to try again")
+            return self.__getitem__(idx) # just retry
         # flag to ignore certain entries
         # TODO: actually need this?
-        iscrowd = torch.zeros((n_obj,), dtype=torch.int64)
+        iscrowd = torch.zeros((n_vobj,), dtype=torch.int64)
 
         # formulate output target dictionary
         target = {
