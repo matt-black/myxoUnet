@@ -65,11 +65,12 @@ def main(**kwargs):
    
     # setup UNet
     net = DUnet(in_channels=1,
-               depth=args.unet_depth,
-               wf=args.unet_wf,
-               padding=args.unet_pad,
-               batch_norm=(not args.no_batchnorm),
-               up_mode=args.unet_upmode)
+                depth=args.unet_depth,
+                wf=args.unet_wf,
+                padding=args.unet_pad,
+                batch_norm=(not args.no_batchnorm),
+                up_mode=args.unet_upmode,
+                down_mode=args.unet_downmode)
     net = net.to(device)
     
     # TODO: fix this so you actually know what size to pad with instead of
@@ -320,7 +321,8 @@ def load_checkpoint(filepath, argz):
                 wf=argz.unet_wf,
                 padding=argz.unet_pad,
                 batch_norm=(not argz.no_batchnorm),
-                up_mode=argz.unet_upmode)
+                up_mode=argz.unet_upmode,
+                down_mode=argz.unet_downmode)
     if argz.sgd:
         opt = optim.SGD(net.parameters(), lr=argz.learning_rate)
     else:
@@ -374,6 +376,8 @@ if __name__ == "__main__":
     parser.add_argument("-um", "--unet-upmode", type=str, default="upconv", 
                         choices=["upconv", "upsample"],
                         help="unet upsampling mode")
+    parser.add_argument("-udm", "--unet-downmode", type=str, default="maxpool",
+                        choices=["maxpool","conv"], help="unet downsampling mode")
     # misc
     parser.add_argument("-s", "--seed", type=int, default=None,
                         help="RNG seed")

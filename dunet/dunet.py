@@ -61,6 +61,7 @@ class DUnet(nn.Module):
                 self.down_conv.append(
                     nn.Conv2d(prev_channels, prev_channels,
                               kernel_size=3, stride=2)
+                )
             else:
                 self.down_conv.append(nn.MaxPool2d(2))
         
