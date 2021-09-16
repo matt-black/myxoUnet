@@ -7,6 +7,7 @@ import torchvision.transforms.functional as TF
 
 import numpy as np
 from scipy import ndimage as ndi
+from scipy import interpolate
 import skimage.filters as skimf
 from skimage.segmentation import watershed as skimage_watershed
 
@@ -80,7 +81,9 @@ def conv2dOutputSize(dim, kernel_size, stride=1, padding=0, dilation=1):
         + 1
 
 
-def overlap_tile(img, net, crop_size, pad_size, output="watershed", **kwargs):
+def overlap_tile(img, net, crop_size, pad_size,
+                 output="watershed", interp_edges=True,
+                 **kwargs):
     """
     predict segmentation of `img` using the overlap-tile strategy
     NOTE: currently only works if the image is mod-divisible by `crop_size` in both dimensions
@@ -123,18 +126,19 @@ def overlap_tile(img, net, crop_size, pad_size, output="watershed", **kwargs):
             row_pad = (crop_size - (img.shape[-2] % crop_size)) // 2
         else:
             row_pad = 0
-        img = TF.pad(img, [col_pad, row_pad], padding_mode='reflect')
-        
+    else:
+        row_pad = 0
+        col_pad = 0
+
     # figure out which device stuff is on
     dev = next(net.parameters()).device
     # pad input image
     img_pad = TF.pad(img, [pad_size, pad_size], padding_mode='reflect')
     tile_size = crop_size + 2*pad_size  # size of tiles input to network
-
-    cd_pred = torch.zeros(img.shape[-2], img.shape[-1],
-                          dtype=torch.int64, device=dev)
-    nd_pred = torch.zeros(img.shape[-2], img.shape[-1],
-                          dtype=torch.int64, device=dev)
+    cd_pred = torch.ones(3, img.shape[-2], img.shape[-1],
+                         dtype=torch.float32, device=dev) * (-1)
+    nd_pred = torch.ones(3, img.shape[-2], img.shape[-1],
+                         dtype=torch.float32, device=dev) * (-1)
     net.eval()
     for r in range(0, img.shape[-2], crop_size):
         for c in range(0, img.shape[-1], crop_size):
@@ -142,8 +146,57 @@ def overlap_tile(img, net, crop_size, pad_size, output="watershed", **kwargs):
             tile = TF.crop(img_pad, r, c, tile_size, tile_size)
             # run tile through net, add it to crop
             cd, nd = net(tile)
-            cd_pred[r:r+crop_size,c:c+crop_size] = cd
-            nd_pred[r:r+crop_size,c:c+crop_size] = nd
+            cd_pred[0,r+1:r+crop_size-1,c+1:c+crop_size-1] = cd[0,0,1:-1,1:-1]
+            nd_pred[0,r+1:r+crop_size-1,c+1:c+crop_size-1] = nd[0,0,1:-1,1:-1]
+    for r in range(crop_size//2, img.shape[-2]-crop_size//2, crop_size):
+        for c in range(0, img.shape[-1], crop_size):
+            # adjust for padding size, then crop out tile
+            tile = TF.crop(img_pad, r, c, tile_size, tile_size)
+            # run tile through net, add it to crop
+            cd, nd = net(tile)
+            cd_pred[1,r+1:r+crop_size-1,c+1:c+crop_size-1] = cd[0,0,1:-1,1:-1]
+            nd_pred[1,r+1:r+crop_size-1,c+1:c+crop_size-1] = nd[0,0,1:-1,1:-1]
+    for r in range(0, img.shape[-2], crop_size):
+        for c in range(crop_size//2, img.shape[-1]-crop_size//2, crop_size):
+            # adjust for padding size, then crop out tile
+            tile = TF.crop(img_pad, r, c, tile_size, tile_size)
+            # run tile through net, add it to crop
+            cd, nd = net(tile)
+            cd_pred[2,r+1:r+crop_size-1,c+1:c+crop_size-1] = cd[0,0,1:-1,1:-1]
+            nd_pred[2,r+1:r+crop_size-1,c+1:c+crop_size-1] = nd[0,0,1:-1,1:-1]
+    cd_pred, _ = torch.max(cd_pred, dim=0)
+    nd_pred, _ = torch.max(nd_pred, dim=0)
+    if interp_edges:
+        # formulate mask to say which values need to be interpolated
+        mask = torch.zeros(img.shape[-2], img.shape[-1],
+                           dtype=torch.bool, device=dev)
+        for r in range(crop_size, img.shape[-2], crop_size):
+            mask[r,:] = True
+        for c in range(crop_size, img.shape[-1], crop_size):
+            mask[:,c] = True
+        mask = mask.cpu().numpy()
+        print(mask.shape)
+        cd_pred = cd_pred.detach().cpu().numpy()
+        nd_pred = nd_pred.detach().cpu().numpy()
+        xx, yy = np.meshgrid(np.arange(img.shape[-1]),
+                             np.arange(img.shape[-2]))
+        # interpolate the cell distance data
+        interp_cdz = interpolate.griddata((xx[~mask], yy[~mask]),
+                                          cd_pred[~mask],
+                                          (xx[mask], yy[mask]),
+                                          method='linear',
+                                          fill_value=0)
+        cd_pred[yy[mask],xx[mask]] = interp_cdz
+        # repeat for neigbor distances
+        interp_ndz = interpolate.griddata((xx[~mask], yy[~mask]),
+                                          nd_pred[~mask],
+                                          (xx[mask], yy[mask]),
+                                          method='linear',
+                                          fill_value=0)
+        nd_pred[yy[mask],xx[mask]] = interp_ndz
+        # convert back to pytorch to match case where we dont interp
+        cd_pred = torch.from_numpy(cd_pred)
+        nd_pred = torch.from_numpy(nd_pred)
     if output == "watershed":
         rho_m = kwargs["rho_mask"]
         rho_s = kwargs["rho_seed"]

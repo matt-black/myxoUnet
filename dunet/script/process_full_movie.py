@@ -66,16 +66,6 @@ def main(**kwargs):
     net = net.to(device)
     if not args.quiet:
         print("made net, transferred to device")
-    
-    # if we computed global stats, need to figure out normalization scheme
-    if train_args.data_global_stats:
-        if args.training_data is None:
-            raise Exception("must specify --training_data if you trained on global stats")
-        dset = MaskDataset(args.training_data, "train", 
-                           train_args.num_classes, None, True)
-        normalize = dset.normalize
-        if not args.quiet:
-            print("computed normalization transform")
 
     # formulate kwargs dict for watershed
     ws_kwargs = {"gauss_sigma" : args.gauss_sigma,
@@ -95,13 +85,10 @@ def main(**kwargs):
             fpath = os.path.join(args.data, "img", 
                                  "frame{:06d}.vk4".format(fr))
             lsr = _to_torch(read_vk4image(fpath, 'light'))
-            # normalize to [0,1] then do stats
+            # normalize to [-1,1]
             lsr = (lsr.float() - lsr.min().float()) / \
                 (lsr.max().float()-lsr.min().float())
-            if train_args.data_global_stats:
-                lsr = normalize(lsr)
-            else:
-                lsr = (lsr - lsr.mean()) / lsr.std()
+            lsr = 2 * lsr - 1
             # do full-frame prediction w/ overlap tile method
             lsr = lsr.to(device)
             if args.output_format == "watershed":
@@ -109,6 +96,7 @@ def main(**kwargs):
                                   crop_size=train_args.crop_size,
                                   pad_size=train_args.input_pad//2,
                                   output="watershed",
+                                  interp_edges=args.interpolate_edges,
                                   **ws_kwargs)
                 # move to numpy and force onto cpu
                 ws = ws.detach().cpu().numpy()
@@ -119,12 +107,13 @@ def main(**kwargs):
                 cd, nd = overlap_tile(lsr, net,
                                       crop_size=train_args.crop_size,
                                       pad_size=train_args.input_pad//2,
-                                      output="distance")
+                                      output="distance",
+                                      interp_edges=args.interpolate_edges)
                 # move to numpy, force onto cpu
                 cd = cd.detach().cpu().numpy()
                 nd = nd.detach().cpu().numpy()
                 # save to *.mat format
-                savemat(os.path.join(args.output, "frame{:06d}.mat".format(fR)),
+                savemat(os.path.join(args.output, "frame{:06d}.mat".format(fr)),
                         {"cell_dist" : cd, "neig_dist" : nd})
             if not args.quiet:
                 print("saved frame {:d}".format(fr))
@@ -141,13 +130,10 @@ def main(**kwargs):
             fpath = os.path.join(args.data, "Laser", 
                                  "{:06d}.bin".format(fr))
             lsr = _to_torch(read_binimage(fpath))
-            # normalize to [0,1] then do stats
+            # normalize to [-1,1] then do stats
             lsr = (lsr.float() - lsr.min().float()) / \
                 (lsr.max().float() - lsr.min().float())
-            if train_args.data_global_stats:
-                lsr = normalize(lsr)
-            else:
-                lsr = (lsr - lsr.mean()) / lsr.std()
+            lsr = 2 * lsr - 1
             # do full-frame prediction w/ overlap tile method
             lsr = lsr.to(device)
             if args.output_format == "watershed":
@@ -170,7 +156,7 @@ def main(**kwargs):
                 cd = cd.detach().cpu().numpy()
                 nd = nd.detach().cpu().numpy()
                 # save to *.mat format
-                savemat(os.path.join(args.output, "frame{:06d}.mat".format(fR)),
+                savemat(os.path.join(args.output, "frame{:06d}.mat".format(fr)),
                         {"cell_dist" : cd, "neig_dist" : nd})
             if not args.quiet:
                 print("saved frame {:d}".format(fr))
@@ -228,6 +214,8 @@ if __name__ == "__main__":
     parser.add_argument("-of", "--output-format", type=str, default="distance",
                         choices=["watershed","distance"],
                         help="output predicted cell/neighbor distances or watershed")
+    parser.add_argument("-ie", "--interpolate-edges", action="store_true", default=False,
+                        help="interpolate values at crop-edge pixels")
     # watershed args
     parser.add_argument("-gs", "--gauss-sigma", type=float, default=1.0,
                         help="std. dev. of gaussian to blur net results with")

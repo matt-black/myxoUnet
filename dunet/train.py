@@ -75,7 +75,7 @@ def main(**kwargs):
     
     # TODO: fix this so you actually know what size to pad with instead of
     # just guessing until you find a good one
-    if not args.unet_pad:
+    if (not args.unet_pad) or (args.unet_downmode == "conv"):
         inp = torch.rand(1, 1, args.crop_size, args.crop_size).to(device)
         out, _ = net(inp)
         out_sze = out.size(-1)
