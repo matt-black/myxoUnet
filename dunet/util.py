@@ -135,6 +135,7 @@ def overlap_tile(img, net, crop_size, pad_size, output="watershed", **kwargs):
                           dtype=torch.int64, device=dev)
     nd_pred = torch.zeros(img.shape[-2], img.shape[-1],
                           dtype=torch.int64, device=dev)
+    net.eval()
     for r in range(0, img.shape[-2], crop_size):
         for c in range(0, img.shape[-1], crop_size):
             # adjust for padding size, then crop out tile
