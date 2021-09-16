@@ -10,6 +10,7 @@ from scipy import ndimage as ndi
 import skimage.filters as skimf
 from skimage.segmentation import watershed as skimage_watershed
 
+
 def one_hot(labels, num_class, device, dtype, eps=1e-12):
     """
     Convert the input label vector/image to its equivalent one-hot encoding
@@ -78,6 +79,84 @@ def conv2dOutputSize(dim, kernel_size, stride=1, padding=0, dilation=1):
     return ((dim + 2 * padding - dilation * (kernel_size - 1) - 1) // stride) \
         + 1
 
+
+def overlap_tile(img, net, crop_size, pad_size, output="watershed", **kwargs):
+    """
+    predict segmentation of `img` using the overlap-tile strategy
+    NOTE: currently only works if the image is mod-divisible by `crop_size` in both dimensions
+    
+    Parameters
+    ----------
+    img : torch.Tensor
+        the input image to predict segmentation of (CxHxW)
+    net : torch.nn.Module
+        the unet
+    crop_size : int
+        dimension of (square) region to be predicted in img
+    pad_size : int
+        amount to pad `crop_size` by to generate input tiles for network
+    Returns
+    -------
+    pred/prob : torch.Tensor
+        either class predictions (pred) or class probabilities (prob)
+        if you specify "pred" the output is a (HxW) torch.LongTensor with pixel
+        values as class ids
+        if you specify "prob" the output is a (NxHxW) torch.FloatTensor with
+        pixel values as class probabilities and each dimension corresponding
+        to a single class
+
+    """
+    assert output in ("watershed", "distance")
+    
+    # unsqueeze input image to make it work with the net
+    # (net wants BxCxHxW)
+    img = _ensure4d(img)
+    output_shape = [img.shape[-2], img.shape[-1]]
+
+    # if crop doesn't cleanly fit into image size, pad image so it does
+    if ((img.shape[-1] % crop_size) > 0) or ((img.shape[-2] % crop_size) > 0):
+        if (img.shape[-1] % crop_size) > 0: # need to pad in row dimension
+            col_pad = (crop_size - (img.shape[-1] % crop_size)) // 2
+        else:
+            col_pad = 0
+        if (img.shape[-2] % crop_size) > 0: # need to pad in col dimension
+            row_pad = (crop_size - (img.shape[-2] % crop_size)) // 2
+        else:
+            row_pad = 0
+        img = TF.pad(img, [col_pad, row_pad], padding_mode='reflect')
+        
+    # figure out which device stuff is on
+    dev = next(net.parameters()).device
+    # pad input image
+    img_pad = TF.pad(img, [pad_size, pad_size], padding_mode='reflect')
+    tile_size = crop_size + 2*pad_size  # size of tiles input to network
+
+    cd_pred = torch.zeros(img.shape[-2], img.shape[-1],
+                          dtype=torch.int64, device=dev)
+    nd_pred = torch.zeros(img.shape[-2], img.shape[-1],
+                          dtype=torch.int64, device=dev)
+    for r in range(0, img.shape[-2], crop_size):
+        for c in range(0, img.shape[-1], crop_size):
+            # adjust for padding size, then crop out tile
+            tile = TF.crop(img_pad, r, c, tile_size, tile_size)
+            # run tile through net, add it to crop
+            cd, nd = net(tile)
+            cd_pred[r:r+crop_size,c:c+crop_size] = cd
+            nd_pred[r:r+crop_size,c:c+crop_size] = nd
+    if output == "watershed":
+        rho_m = kwargs["rho_mask"]
+        rho_s = kwargs["rho_seed"]
+        seedp = kwargs["seed_neig_power"]
+        sigma = kwargs["gauss_sigma"]
+        return watershed(cd_pred, nd_pred,
+                         gauss_sigma=sigma,
+                         rho_mask=rho_m,
+                         rho_seed=rho_s,
+                         seed_neig_power=seedp)
+    else:
+        return cd_pred, nd_pred
+
+
 def watershed(p_cell, p_neig,
               gauss_sigma=(1.5,1.5),
               rho_mask=0.09,
@@ -99,7 +178,8 @@ def watershed(p_cell, p_neig,
     p_mask = phat_cell > rho_mask
     p_seed = (p_cell - np.power(p_neig, seed_neig_power)) > rho_seed
     marks, _ = ndi.label(p_seed)
-    return skimage_watershed(-p_cell, markers=marks, mask=p_mask)
+    return skimage_watershed(-p_cell, markers=marks, mask=p_mask,
+                             watershed_line=True)
 
 
 class AvgValueTracker(object):
