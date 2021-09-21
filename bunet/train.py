@@ -72,7 +72,8 @@ def main(**kwargs):
                 batch_norm=(not args.no_batchnorm),
                 up_mode=args.unet_upmode,
                 down_mode=args.unet_downmode,
-                cell_channels=1)
+                cell_channels=1,
+                out_channels=1)
     net = net.to(device)
     
     # TODO: fix this so you actually know what size to pad with instead of

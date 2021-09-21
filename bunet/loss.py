@@ -12,14 +12,13 @@ class BUNetLoss(nn.Module):
         self.beta = beta
         self.gamma = gamma
         # cross entropy loss for boundaries & fusion
-        self.ce = nn.CrossEntropyLoss()
+        self.bce = nn.BCEWithLogitsLoss()
         self.lr_type = l_r
         # MSE loss for cell distances
         if l_r == "mse":
             self.lr = nn.MSELoss()
         elif l_r == "bce":
-            self.sig = nn.Sigmoid()
-            self.lr = nn.BCELoss()
+            self.lr = nn.BCEWithLogitsLoss()
         else:
             raise ValueError("invalid type for l_r")
 
@@ -28,8 +27,8 @@ class BUNetLoss(nn.Module):
                 cd_pred, cd_target,
                 bnd_pred, bnd_target):
         # fusion and boundary loss is cross entropy
-        L_F = self.ce(fuse_pred, fuse_target)
-        L_B = self.ce(bnd_pred, bnd_target)
-        L_R = self.lr(self.sig(cd_pred), cd_target)
+        L_F = self.bce(fuse_pred, fuse_target.unsqueeze(0).float())
+        L_B = self.bce(bnd_pred, bnd_target.unsqueeze(0).float())
+        L_R = self.lr(cd_pred, cd_target)
         loss = self.gamma * L_F + self.beta * L_B + self.alpha * L_R
         return loss, (L_F, L_B, L_R)
