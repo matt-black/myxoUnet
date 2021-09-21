@@ -87,7 +87,8 @@ class MaskDataset(torch.utils.data.Dataset):
             img = (img.float() - img.float().mean()) / \
                 img.float().std()
         # return
-        return img, cell_mask.long(), cell_dist, cell_bord.long()
+        return img, cell_mask.float().clamp(1e-6,1-1e-6), cell_dist, \
+            cell_bord.float().clamp(1e-6,1-1e-6)
     
     def _get_image(self, idx):
         img_path = os.path.join(self.img_dir,

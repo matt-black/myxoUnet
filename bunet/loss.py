@@ -6,11 +6,12 @@ from torch import nn
 
 
 class BUNetLoss(nn.Module):
-    def __init__(self, alpha, beta, gamma, l_r="mse"):
+    def __init__(self, alpha, beta, gamma, l_r="mse", eps=1e-6):
         super(BUNetLoss, self).__init__()
         self.alpha = alpha
         self.beta = beta
         self.gamma = gamma
+        self.eps = eps
         # cross entropy loss for boundaries & fusion
         self.bce = nn.BCEWithLogitsLoss()
         self.lr_type = l_r
@@ -27,8 +28,9 @@ class BUNetLoss(nn.Module):
                 cd_pred, cd_target,
                 bnd_pred, bnd_target):
         # fusion and boundary loss is cross entropy
-        L_F = self.bce(fuse_pred, fuse_target.unsqueeze(0).float())
-        L_B = self.bce(bnd_pred, bnd_target.unsqueeze(0).float())
+        L_F = self.bce(fuse_pred, fuse_target.unsqueeze(1))
+        L_B = self.bce(bnd_pred, bnd_target.unsqueeze(1))
+        cd_target = cd_target.clamp(self.eps, 1-self.eps)
         L_R = self.lr(cd_pred, cd_target)
         loss = self.gamma * L_F + self.beta * L_B + self.alpha * L_R
         return loss, (L_F, L_B, L_R)
