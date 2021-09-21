@@ -257,9 +257,6 @@ def train(data, model, criterion, optimizer, epoch, device, output_size,
         bord = bord.to(device)
         # computation
         fused, dist_pred, bord_pred = model(img)
-        # for cross entropy predictions, take softmax
-        fused = F.softmax(fused, dim=1)
-        bord_pred = F.softmax (bord_pred, dim=1)
         # compute loss
         loss, (l_f, l_b, l_r) = criterion(fused, mask,
                                           dist_pred, dist,
@@ -307,9 +304,6 @@ def test(data, model, criterion, epoch, device, output_size, prog_disp=1):
             bord = bord.to(device)
             # computation
             fused, dist_pred, bord_pred = model(img)
-            # for cross entropy predictions, take softmax
-            fused = F.softmax(fused, dim=1)
-            bord_pred = F.softmax (bord_pred, dim=1)
             # compute loss
             loss, (l_f, l_b, l_r) = criterion(fused, mask,
                                               dist_pred, dist,

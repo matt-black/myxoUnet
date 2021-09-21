@@ -90,7 +90,7 @@ class BUNet(nn.Module):
                 blocks.append(x)
                 x = samp(x)     # downsampling
         # now upsample along each parallel path
-        y = x                   # x is cells, y is border
+        y = torch.clone(x)                   # x is cells, y is border
         for i, (up_cd, up_bd) in enumerate(zip(self.up_path_cd, self.up_path_bd)):
             x = up_cd(x, blocks[-i - 1])
             y = up_bd(y, blocks[-i - 1])

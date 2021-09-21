@@ -115,7 +115,7 @@ def main(**kwargs):
     if args.data_size_scale:
         train_data = SizeScaledMaskDataset(args.data, "train",
                                            n_classes=args.num_classes,
-                                           crop_dim=args.crop_dim,
+                                           crop_dim=crop_dim,
                                            transform=train_trans,
                                            stat_global=args.data_global_stats)
     else:
@@ -130,7 +130,7 @@ def main(**kwargs):
         if args.data_size_scale:
             test_data = SizeScaledMaskDataset(args.data, "test",
                                               n_classes=args.num_classes,
-                                              crop_dim=args.crop_dim,
+                                              crop_dim=crop_dim,
                                               transform=test_trans,
                                               stat_global=args.data_global_stats)
         else:

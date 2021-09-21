@@ -174,8 +174,6 @@ class SizeScaledMaskDataset(torch.utils.data.Dataset):
         else:
             img = (img.float() - img.float().mean()) / \
                 img.float().std()
-            img = (img.float() - subval) / denom
-        # return
         return img, mask.long()
     
     def _get_image(self, idx):
