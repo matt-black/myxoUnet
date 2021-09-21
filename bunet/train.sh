@@ -13,8 +13,8 @@ module purge
 module load anaconda3/2020.11
 conda activate pyt
 
-python train.py --data="../supp/test" --data-global-stats \
-       --crop-size=256 --batch-size=2 --epochs=100 \
+python train.py --data="../supp/test" --data-type="prob" --data-global-stats \
+       --crop-size=256 --batch-size=2 --epochs=100 --lr-type="bce" \
        --step-lr="100,0.1" --learning-rate=.0001\
        --unet-depth=3 --unet-wf=6 \
        --unet-upmode="upconv" --unet-downmode="maxpool"

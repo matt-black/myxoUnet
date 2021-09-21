@@ -22,11 +22,13 @@ class MaskDataset(torch.utils.data.Dataset):
     """
     """
     def __init__(self, base_dir, set_type, transform=None, img_transform=None,
-                 stat_global=True):
+                 stat_global=True, is_prob_ds=False):
         # confirm input is ok
         assert set_type in ("train", "test")
+        self.is_prob = is_prob_ds
         # setup directory & table locations
         self.img_dir = os.path.join(base_dir, set_type, "img")
+        self.prb_dir = os.path.join(base_dir, set_type, "prb")
         self.dst_dir = os.path.join(base_dir, set_type, "dst")
         self.msk_dir = os.path.join(base_dir, set_type, "msk")
         self.tbl = pd.read_csv(os.path.join(base_dir, 
@@ -60,10 +62,12 @@ class MaskDataset(torch.utils.data.Dataset):
         img = self.to_tensor(self._get_image(real_idx)).float()
         cell_mask = self.to_tensor(self._get_mask(real_idx))
         cell_mask = (cell_mask > 0).float()
-        cell_dist = self._get_dist(real_idx).float()
+        if self.is_prob:
+            cell_dist = self._get_prob(real_idx).float()
+        else:
+            cell_dist = self._get_dist(real_idx).float()
         cell_bord = self.to_tensor(
             self._get_border_mask(real_idx)).float()
-        
         
         # apply transforms to image and masks, then split back out
         if self.trans is not None:
@@ -94,6 +98,13 @@ class MaskDataset(torch.utils.data.Dataset):
         msk_path = os.path.join(self.msk_dir,
                                 "im{:03d}_clbl.png".format(self.tbl.idx[idx]))
         return Image.open(msk_path)
+
+    def _get_prob(self, idx):
+        prb_path = os.path.join(self.prb_dir,
+                                "im{:03d}.mat".format(self.tbl.idx[idx]))
+        prb = loadmat(prb_path)
+        cell_prob = torch.from_numpy(prb["cell_prob"]).unsqueeze(0)
+        return cell_prob
     
     def _get_border_mask(self, idx):
         msk_path = os.path.join(self.msk_dir,

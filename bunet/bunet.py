@@ -17,7 +17,8 @@ class BUNet(nn.Module):
             padding=True,
             batch_norm=True,
             up_mode='upconv',
-            down_mode='maxpool'
+            down_mode='maxpool',
+            cell_channels=1
     ):
         """
         Implementation of "Dual U-Net for the Segmentation of Overlapping Glioma"
@@ -74,10 +75,10 @@ class BUNet(nn.Module):
                             up_mode, padding, batch_norm)
             )
             prev_channels = 2 ** (wf + i)
-        self.last_cd = nn.Conv2d(prev_channels, 1, kernel_size=1)
+        self.last_cd = nn.Conv2d(prev_channels, cell_channels, kernel_size=1)
         self.last_bd = nn.Conv2d(prev_channels, 2, kernel_size=1)
         # the fusion block
-        self.fuse = BUNetFusionBlock()
+        self.fuse = BUNetFusionBlock(cell_channels+2)
 
     def forward(self, x):
         blocks = []
@@ -153,10 +154,10 @@ class UNetUpBlock(nn.Module):
 
 class BUNetFusionBlock(nn.Module):
     
-    def __init__(self):
+    def __init__(self, in_channels):
         super(BUNetFusionBlock, self).__init__()
         self.convs = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels, 64, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.BatchNorm2d(64),
             nn.Conv2d(64, 64, kernel_size=3, padding=1),

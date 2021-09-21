@@ -71,7 +71,8 @@ def main(**kwargs):
                 padding=args.unet_pad,
                 batch_norm=(not args.no_batchnorm),
                 up_mode=args.unet_upmode,
-                down_mode=args.unet_downmode)
+                down_mode=args.unet_downmode,
+                cell_channels=1)
     net = net.to(device)
     
     # TODO: fix this so you actually know what size to pad with instead of
@@ -115,7 +116,8 @@ def main(**kwargs):
     
     train_data = MaskDataset(args.data, "train",
                              transform=train_trans,
-                             stat_global=args.data_global_stats)
+                             stat_global=args.data_global_stats,
+                             is_prob_ds=args.data_type[0]=='p')
     train_load = DataLoader(train_data, batch_size=args.batch_size, 
                             shuffle=True, **datakw)
     if not args.no_test:
@@ -123,12 +125,13 @@ def main(**kwargs):
         
         test_data = MaskDataset(args.data, "test",
                                 transform=test_trans,
-                                stat_global=args.data_global_stats)
+                                stat_global=args.data_global_stats,
+                                is_prob_ds=args.data_type[0]=='p')
         test_load = DataLoader(test_data, batch_size=args.batch_size,
                                shuffle=True, **datakw)
     
     # make loss function
-    crit = BUNetLoss(args.alpha, args.beta, args.gamma)
+    crit = BUNetLoss(args.alpha, args.beta, args.gamma, args.lr_type)
     
     # save input arguments to json file
     if args.save_path is not None:
@@ -384,6 +387,9 @@ if __name__ == "__main__":
     # data parameters
     parser.add_argument("-d", "--data", type=str, required=True,
                         help="path to data folder")
+    parser.add_argument("-dt", "--data-type", type=str, required=True,
+                        choices=["d","dist","distance","p","prob","probability"],
+                        help="type of dataset (distance or probability)")
     parser.add_argument("-dgs", "--data-global-stats", action="store_true", default=False,
                         help="use global-statistics based normalization")
     parser.add_argument("-dd", "--do-deform-transform", action="store_true", default=False,
@@ -397,6 +403,9 @@ if __name__ == "__main__":
                         help="beta parameter for BUNetLoss")
     parser.add_argument("--gamma", type=float, default=1.0,
                         help="gamma parameter for BUNetLoss")
+    parser.add_argument("--lr-type", type=str, default="bce",
+                        choices=["mse","bce"],
+                        help="type of loss for cell distances/probabilities")
     # training/optimization parameters
     parser.add_argument("--sgd", action="store_true", default=False,
                         help="use SGD instead of Adam")
