@@ -338,7 +338,7 @@ def load_checkpoint(filepath, argz):
     opt.load_state_dict(chkpt["optimizer"])
     # handle the scheduler
     if len(argz.reduce_lr_plateau) > 0:
-        params = args.reduce_lr_plateau.split(",")
+        params = argz.reduce_lr_plateau.split(",")
         sch = optim.lr_scheduler.ReduceLROnPlateau(opt,
                                                    mode='min',
                                                    factor=float(params[0]),
@@ -375,7 +375,7 @@ if __name__ == "__main__":
     parser.add_argument("-l", "--loss", type=str, default="ce",
                         help="type of loss function")
     parser.add_argument("-c", "--num-classes", type=int, default=2,
-                        choices=[2,3,4], help="number of semantic classes")
+                        choices=[2,3,4,5], help="number of semantic classes")
     parser.add_argument("-cs", "--crop-size", type=int, default=256,
                         help="size of region to crop from original images")
     parser.add_argument("--sgd", action="store_true", default=False,
