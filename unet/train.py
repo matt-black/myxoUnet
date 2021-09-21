@@ -338,7 +338,7 @@ def load_checkpoint(filepath, argz):
     opt.load_state_dict(chkpt["optimizer"])
     # handle the scheduler
     if len(argz.reduce_lr_plateau) > 0:
-        params = args.reduce_lr_plateau.split(",")
+        params = argz.reduce_lr_plateau.split(",")
         sch = optim.lr_scheduler.ReduceLROnPlateau(opt,
                                                    mode='min',
                                                    factor=float(params[0]),

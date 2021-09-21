@@ -33,7 +33,9 @@ class MaskDataset(torch.utils.data.Dataset):
         self.n_class = n_classes
         
         # setup formatting for input masks
-        if n_classes == 4:
+        if n_classes == 5:
+            self.msk_fmt = "im{:03d}_j5.png"
+        elif n_classes == 4:
             self.msk_fmt = "im{:03d}_j4.png"
         elif n_classes == 3:
             self.msk_fmt = "im{:03d}_j3.png"
