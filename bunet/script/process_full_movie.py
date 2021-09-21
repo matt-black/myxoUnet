@@ -84,21 +84,11 @@ def main(**kwargs):
         if not args.quiet:
             print("loaded frameTimeZ, will process {:d} frames".format(max_fr))
         
-        if args.segmask_animation:  # initialize empty "frames" array
-            if use_cuda:  # assume headless server, use "Agg" backend
-                import matplotlib
-                matplotlib.use("Agg")
-                
-            fig = plt.figure(figsize=(12,9))
-            frames = []
-        
         for fr in range(1, max_fr):  # NOTE: skips actual last frame
             # read in image
             fpath = os.path.join(args.data, "img", 
                                  "frame{:06d}.vk4".format(fr))
             lsr = _to_torch(read_vk4image(fpath, 'light'))
-            if args.segmask_animation:
-                lsr_uint8 = (lsr * 255).type(torch.ByteTensor).squeeze(0)
             # do image normalization
             if train_args.data_global_stats:
                 lsr = normalize(lsr)
@@ -106,41 +96,19 @@ def main(**kwargs):
                 lsr = (lsr - lsr.mean()) / lsr.std()
             # do full-frame prediction w/ overlap tile method
             lsr = lsr.to(device)
-            pr = overlap_tile(lsr, net,
-                              crop_size=train_args.crop_size,
-                              pad_size=train_args.input_pad//2,
-                              output=args.output_format,
-                              num_classes=train_args.num_classes)
-            if args.segmask_animation:
-                if args.output_format == "prob":
-                    msk = torch.argmax(pr, dim=0)
-                else:
-                    msk = pr
-                msk = msk.detach().cpu()  # force to cpu
-                I = draw_segmentation_masks(lsr_uint8.repeat(3,1,1),
-                                            torch.stack([msk==i 
-                                                         for i in 
-                                                         range(train_args.num_classes)]),
-                                            alpha=0.4,
-                                            colors=["black","red","blue","green"])
-                frames.append([plt.imshow(F.to_pil_image(I), 
-                                          aspect="auto", 
-                                          animated=True)])
+            fuse, cell_pred, bord_pred = overlap_tile(lsr, net,
+                                                      crop_size=train_args.crop_size,
+                                                      pad_size=train_args.input_pad//2)
             # move to numpy and force onto cpu
-            pr = pr.detach().cpu().numpy()
+            fuse = fuse.squeeze().detach().numpy()
+            cell_pred = cell_pred.squeeze().detach().numpy()
+            bord_pred = cell_pred.squeeze().detach().numpy()
             # save to *.mat format
             savemat(os.path.join(args.output, "frame{:06d}.mat".format(fr)),
-                    {"P" : pr})
+                    {"fuse" : fuse, "p_cell" : cell_pred, "p_bord" : bord_pred})
             if not args.quiet:
                 print("saved frame {:d}".format(fr))
         
-        if args.segmask_animation:
-            anim = animation.ArtistAnimation(fig, frames, interval=1000,
-                                             blit=True)
-            anim.save(os.path.join(args.output, "segmask_animation.mp4"))
-            if not args.quiet:
-                print("animation saved")            
-            
     elif args.data_format == "kc":  # katie's format with *.bin
         raise NotImplementedError("havent done this yet")
     else:
@@ -186,12 +154,6 @@ if __name__ == "__main__":
     # output args
     parser.add_argument("-o", "--output", type=str, required=True,
                         help="path to output folder")
-    parser.add_argument("-of", "--output-format", type=str, default="prob",
-                        choices=["prob","pred"],
-                        help="output probabilities or class predictions")
-    parser.add_argument("-a", "--segmask-animation", action="store_true",
-                        default=False,
-                        help="calculate/save segmentation mask animation")
     # misc. args
     parser.add_argument("-nc", "--no-cuda", action="store_true", default=False,
                         help="dont use cuda, even if available")

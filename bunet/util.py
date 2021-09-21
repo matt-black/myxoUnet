@@ -63,7 +63,7 @@ def _ensure4d(img):
     else:
         raise Exception("dont know how to handle >4d inputs")
 
-def overlap_tile(img, net, crop_size, pad_size, output="prob", **kwargs):
+def overlap_tile(img, net, crop_size, pad_size):
     """
     predict segmentation of `img` using the overlap-tile strategy
     NOTE: currently only works if the image is mod-divisible by `crop_size` in both dimensions
@@ -90,11 +90,22 @@ def overlap_tile(img, net, crop_size, pad_size, output="prob", **kwargs):
         to a single class
 
     """
-    assert img.shape[-2] % crop_size == 0
-    assert img.shape[-1] % crop_size == 0
     # unsqueeze input image to make it work with the net
     # (net wants BxCxHxW)
     img = _ensure4d(img)
+    output_shape = [img.shape[-2], img.shape[-1]]
+
+    # if crop doesn't cleanly fit into image size, pad image so it does
+    if ((img.shape[-1] % crop_size) > 0) or ((img.shape[-2] % crop_size) > 0):
+        if (img.shape[-1] % crop_size) > 0: # need to pad in row dimension
+            col_pad = (crop_size - (img.shape[-1] % crop_size)) // 2
+        else:
+            col_pad = 0
+        if (img.shape[-2] % crop_size) > 0: # need to pad in col dimension
+            row_pad = (crop_size - (img.shape[-2] % crop_size)) // 2
+        else:
+            row_pad = 0
+        img = TF.pad(img, [col_pad, row_pad], padding_mode='reflect')
     
     # figure out which device stuff is on
     dev = next(net.parameters()).device
@@ -102,60 +113,29 @@ def overlap_tile(img, net, crop_size, pad_size, output="prob", **kwargs):
     img_pad = TF.pad(img, [pad_size, pad_size], padding_mode='reflect')
     tile_size = crop_size + 2*pad_size  # size of tiles input to network
 
-    if output == "pred":
-        pred = torch.zeros(img.shape[-2], img.shape[-1],
-                           dtype=torch.int64, device=dev)
+    with torch.no_grad():  # w/o this, builds up huge comp. graph => lots of memory usage
+        # preallocate outputs
+        fuse = torch.zeros(img.shape[-2], img.shape[-1],
+                           dtype=torch.float32, device=dev)
+        cell = torch.zeros(img.shape[-2], img.shape[-1],
+                           dtype=torch.float32, device=dev)
+        bord = torch.zeros(img.shape[-2], img.shape[-1],
+                           dtype=torch.float32, device=dev)
+        # main loop: loop over rows/columns, isolate tiles of the right size, and run through net
         for r in range(0, img.shape[-2], crop_size):
             for c in range(0, img.shape[-1], crop_size):
                 # adjust for padding size, then crop out tile
                 tile = TF.crop(img_pad, r, c, tile_size, tile_size)
                 # run tile through net, add it to crop
-                tile_pred = F.softmax(net(tile), dim=1)
-                pred[r:r+crop_size,c:c+crop_size] = torch.argmax(tile_pred, dim=1)
-        return pred
-    elif output == "prob":
-        num_chan = kwargs["num_classes"]
-        prob = torch.zeros(num_chan, img.shape[-2], img.shape[-1],
-                           dtype=torch.float32, device=dev)
-        for r in range(0, img.shape[-2], crop_size):
-            for c in range(0, img.shape[-1], crop_size):
-                tile = TF.crop(img_pad, r, c, tile_size, tile_size)
-                tile_prob = F.softmax(net(tile), dim=1)
-                prob[:,r:r+crop_size,c:c+crop_size] = tile_prob.squeeze(0)
-        return prob
-
-def process_image(img, net):
-    dev = next(net.parameters()).device
-    pred = F.softmax(net(_ensure4d(img).to(dev)), dim=1)
-    return pred
-
-
-def truefalse_posneg_stats(y_true, y_pred, num_class):
-    # convert truth mask to one-hot
-    if len(y_true.shape) == 2:
-        y_true = y_true.unsqueeze(0)  # add fake "batch" dimension
-    if len(y_true.shape) == 3:  # assume its (BxHxW) label mask
-        oh_true = one_hot(y_true, num_class, y_pred.device, torch.float)
-    else:
-        assert len(y_true.shape) == 4 # assume its (BxCxHxW) one-hot encoding
-        oh_true = y_true
-    # make sure y_pred is also one-hot (same logic as above)
-    if len(y_pred.shape) == 2:
-        y_pred = y_pred.unsqueeze(0)
-    if len(y_pred.shape) == 3:
-        oh_pred = one_hot(y_pred, num_class, y_pred.device, torch.float)
-    else:
-        assert len(y_pred.shape) == 4
-        oh_pred = y_pred
-        
-    # compute statistics 
-    # (each should be BxCxHxW and then summed to only leave channel)
-    true_pos = (oh_pred * oh_true).sum(dim=(0,-2,-1))
-    false_pos = (oh_pred * (1 - oh_true)).sum(dim=(0,-2,-1))
-    true_neg = ((1 - oh_pred) * (1 - oh_true)).sum(dim=(0,-2,-1))
-    false_neg = ((1 - oh_pred) * oh_true).sum(dim=(0,-2,-1))
-    
-    return (true_pos, false_pos), (true_neg, false_neg)
+                tile_f, tile_c, tile_b = net(tile)
+                fuse[r:r+crop_size,c:c+crop_size] = torch.sigmoid(tile_f.detach().squeeze())
+                cell[r:r+crop_size,c:c+crop_size] = torch.sigmoid(tile_c.detach().squeeze())
+                bord[r:r+crop_size,c:c+crop_size] = torch.sigmoid(tile_b.detach().squeeze())
+        # crop down to output shape
+        fuse = TF.center_crop(fuse, output_shape)
+        cell = TF.center_crop(cell, output_shape)
+        bord = TF.center_crop(bord, output_shape)
+        return fuse, cell, bord
 
 
 def convTranspose2dOutputSize(dim, kernel_size, stride=1, padding=0, 

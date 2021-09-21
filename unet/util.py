@@ -113,30 +113,32 @@ def overlap_tile(img, net, crop_size, pad_size, output="prob", **kwargs):
     img_pad = TF.pad(img, [pad_size, pad_size], padding_mode='reflect')
     tile_size = crop_size + 2*pad_size  # size of tiles input to network
 
-    if output == "pred":
-        pred = torch.zeros(img.shape[-2], img.shape[-1],
-                           dtype=torch.int64, device=dev)
-        for r in range(0, img.shape[-2], crop_size):
-            for c in range(0, img.shape[-1], crop_size):
-                # adjust for padding size, then crop out tile
-                tile = TF.crop(img_pad, r, c, tile_size, tile_size)
-                # run tile through net, add it to crop
-                tile_pred = F.softmax(net(tile), dim=1)
-                pred[r:r+crop_size,c:c+crop_size] = torch.argmax(tile_pred, dim=1)
-        return TF.center_crop(pred, output_shape)
-    elif output == "prob":
-        num_chan = kwargs["num_classes"]
-        prob = torch.zeros(num_chan, img.shape[-2], img.shape[-1],
-                           dtype=torch.float32, device=dev)
-        for r in range(0, img.shape[-2], crop_size):
-            for c in range(0, img.shape[-1], crop_size):
-                tile = TF.crop(img_pad, r, c, tile_size, tile_size)
-                tile_prob = F.softmax(net(tile), dim=1)
-                prob[:,r:r+crop_size,c:c+crop_size] = tile_prob.squeeze(0)
-                print("r = {:d}, c = {:d}".format(r,c))
-        print("overlapped")
-        return TF.center_crop(prob, output_shape)
+    with torch.no_grad():
+        if output == "pred":
+            pred = torch.zeros(img.shape[-2], img.shape[-1],
+                               dtype=torch.int64, device=dev)
+            for r in range(0, img.shape[-2], crop_size):
+                for c in range(0, img.shape[-1], crop_size):
+                    # adjust for padding size, then crop out tile
+                    tile = TF.crop(img_pad, r, c, tile_size, tile_size)
+                    # run tile through net, add it to crop
+                    tile_pred = F.softmax(net(tile), dim=1)
+                    pred[r:r+crop_size,c:c+crop_size] = torch.argmax(tile_pred, dim=1)
+            return TF.center_crop(pred, output_shape)
+        elif output == "prob":
+            num_chan = kwargs["num_classes"]
+            prob = torch.zeros(num_chan, img.shape[-2], img.shape[-1],
+                               dtype=torch.float32, device=dev)
+            for r in range(0, img.shape[-2], crop_size):
+                for c in range(0, img.shape[-1], crop_size):
+                    tile = TF.crop(img_pad, r, c, tile_size, tile_size)
+                    tile_prob = F.softmax(net(tile), dim=1)
+                    prob[:,r:r+crop_size,c:c+crop_size] = tile_prob.squeeze(0)
+                    print("r = {:d}, c = {:d}".format(r,c))
+            print("overlapped")
+            return TF.center_crop(prob, output_shape)
 
+    
 def process_image(img, net):
     dev = next(net.parameters()).device
     pred = F.softmax(net(_ensure4d(img).to(dev)), dim=1)

@@ -13,8 +13,7 @@ module purge
 module load anaconda3/2020.11
 conda activate pyt
 
-python process_full_movie.py --checkpoint="/scratch/gpfs/mb46/2021-08-31_wce" \
+python process_full_movie.py --checkpoint="/scratch/gpfs/mb46/2021-09-21_127" \
        --data="/scratch/gpfs/mb46/frzE_highP/view1_2" --data-format="ktl" \
-       --training-data="/home/mb46/myxoUnet/supp/test" \
-       --output="/scratch/gpfs/mb46/frzE_highP/view1_2_wce" --output-format="prob" \
-       --segmask-animation
+       --training-data="/home/mb46/myxoUnet/supp/prob_ds" \
+       --output="/scratch/gpfs/mb46/frzE_highP/view1_2/bunet_127"
