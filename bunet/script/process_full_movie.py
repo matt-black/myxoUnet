@@ -9,6 +9,7 @@ import os, sys
 import json
 import argparse
 import random
+import fnmatch
 
 import torch
 from torchvision.utils import draw_segmentation_masks
@@ -112,10 +113,37 @@ def main(**kwargs):
                 print("saved frame {:d}".format(fr))
         
     elif args.data_format == "kc":  # katie's format with *.bin
-        raise NotImplementedError("havent done this yet")
+        # figure out how many frames to process
+        lsr_path = os.path.join(args.data, "Laser")
+        max_fr = len(fnmatch.filter(os.listdir(lsr_path), "*.bin"))
+        if not args.quiet:
+            print("will process {:d} frames".format(max_fr))
+
+        for fr in range(max_fr):
+            # read in laser image as torch tensor
+            fpath = os.path.join(lsr_path, "{:06d}.bin".format(fr))
+            lsr = _to_torch(read_binimage(fpath))
+            if train_args.data_global_stats:
+                lsr = normalize(lsr)
+            else:
+                lsr = (lsr - lsr.mean()) / lsr.std()
+            # do full-frame prediction w/ overlap tile method
+            lsr = lsr.to(device)
+            fuse, cell_pred, bord_pred = overlap_tile(lsr, net,
+                                                      crop_size=train_args.crop_size,
+                                                      pad_size=train_args.input_pad//2)
+            # move to numpy, force onto cpu
+            fuse = fuse.detach().cpu().squeeze().numpy()
+            cell_pred = cell_pred.detach().cpu().squeeze().numpy()
+            bord_pred = bord_pred.detach().cpu().squeeze().numpy()
+            # save to *.mat format
+            savemat(os.path.join(args.output, "frame{:06d}.mat".format(fr)),
+                    {"fuse" : fuse, "p_cell" : cell_pred, "p_bord" : bord_pred})
+            if not args.quiet:
+                print("saved frame {:d}".format(fr))
     else:
         raise Exception("invalid data format {:s}".format(args.data_format))
-    
+    return 0
         
 
 def read_vk4image(fpath, im_type='light'):
@@ -132,10 +160,19 @@ def read_vk4image(fpath, im_type='light'):
     return lsr
 
 
+def read_binimage(fpath, im_wid=1024, im_hgt=768):
+    """read in an image from a *.bin file
+    """
+    lsr_data = np.fromfile(fpath, dtype=np.uint16)
+    lsr = np.reshape(lsr_data, (im_hgt, im_wid), 'C')
+    return lsr
+
+
 def _to_torch(img):
     """convert uint16 image to [0,1] torch.FloatTensor
     """
-    return torch.from_numpy(img.astype('float32')).unsqueeze(0) / 65535
+    x = torch.from_numpy(img.astype('float32')).unsqueeze(0).float()
+    return (x - x.min()) / (x.max()-x.min())
 
 
 if __name__ == "__main__":
