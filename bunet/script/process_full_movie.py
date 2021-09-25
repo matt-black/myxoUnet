@@ -60,8 +60,8 @@ def main(**kwargs):
         train_args = argparse.Namespace(**train_args)
     
     # setup trained network
-    net, _ = load_checkpoint(os.path.join(args.checkpoint, "model.pth"), 
-                             train_args)
+    net, _, _ = load_checkpoint(os.path.join(args.checkpoint, "model.pth"), 
+                                train_args)
     net = net.to(device)
     if not args.quiet:
         print("made net, transferred to device")
@@ -70,8 +70,10 @@ def main(**kwargs):
     if train_args.data_global_stats:
         if args.training_data is None:
             raise Exception("must specify --training_data if you trained on global stats")
-        dset = MaskDataset(args.training_data, "train", 
-                           train_args.num_classes, None, True)
+        dset = MaskDataset(args.training_data, "train",
+                           transform=None, img_transform=None,
+                           stat_global=train_args.data_global_stats,
+                           is_prob_ds=train_args.data_type[0]=='p')
         normalize = dset.normalize
         if not args.quiet:
             print("computed normalization transform")
@@ -100,9 +102,9 @@ def main(**kwargs):
                                                       crop_size=train_args.crop_size,
                                                       pad_size=train_args.input_pad//2)
             # move to numpy and force onto cpu
-            fuse = fuse.squeeze().detach().numpy()
-            cell_pred = cell_pred.squeeze().detach().numpy()
-            bord_pred = cell_pred.squeeze().detach().numpy()
+            fuse = fuse.detach().cpu().squeeze().numpy()
+            cell_pred = cell_pred.detach().cpu().squeeze().numpy()
+            bord_pred = bord_pred.detach().cpu().squeeze().numpy()
             # save to *.mat format
             savemat(os.path.join(args.output, "frame{:06d}.mat".format(fr)),
                     {"fuse" : fuse, "p_cell" : cell_pred, "p_bord" : bord_pred})
