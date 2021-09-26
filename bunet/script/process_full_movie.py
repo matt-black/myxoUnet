@@ -26,7 +26,7 @@ import matplotlib.animation as animation
 sys.path.insert(1, os.path.abspath(os.path.join('..')))
 from train import load_checkpoint
 from data import MaskDataset
-from util import overlap_tile
+from util import overlap_tile, imflatfield
 
 sys.path.insert(1, os.path.abspath(os.path.join('..','..','supp')))
 import vk4extract.vk4extract as vk4e
@@ -91,7 +91,11 @@ def main(**kwargs):
             # read in image
             fpath = os.path.join(args.data, "img", 
                                  "frame{:06d}.vk4".format(fr))
-            lsr = _to_torch(read_vk4image(fpath, 'light'))
+            if args.flatfield > 0:
+                lsr = _to_torch(imflatfield(read_vk4image(
+                    fpath, 'light'), args.flatfield))
+            else:
+                lsr = _to_torch(read_vk4image(fpath, 'light'))
             # do image normalization
             if train_args.data_global_stats:
                 lsr = normalize(lsr)
@@ -122,7 +126,11 @@ def main(**kwargs):
         for fr in range(max_fr):
             # read in laser image as torch tensor
             fpath = os.path.join(lsr_path, "{:06d}.bin".format(fr))
-            lsr = _to_torch(read_binimage(fpath))
+            if args.flatfield > 0:
+                lsr = _to_torch(imflatfield(read_binimage(fpath),
+                                            args.flatfield))
+            else:
+                lsr = _to_torch(read_binimage(fpath))
             if train_args.data_global_stats:
                 lsr = normalize(lsr)
             else:
@@ -187,6 +195,8 @@ if __name__ == "__main__":
     parser.add_argument("-df", "--data-format", type=str, required=True,
                         choices=["ktl","kc"],
                         help="format of time-series dataset")
+    parser.add_argument("-ff", "--flatfield", type=int, default=30,
+                        help="sigma of flatfield transform for input data")
     # training data
     parser.add_argument("-td", "--training-data", type=str, default=None,
                         help="path to dataset used to train the net with")

@@ -1,6 +1,9 @@
 """Utility classes/functions
 """
 
+import numpy as np
+from scipy.ndimage import gaussian_filter
+
 import torch
 import torch.nn.functional as F
 import torchvision.transforms.functional as TF
@@ -63,6 +66,26 @@ def _ensure4d(img):
     else:
         raise Exception("dont know how to handle >4d inputs")
 
+
+def imflatfield(img, sigma):
+    """
+    python implementation of Matlab's imflatfield, but simpler
+    """
+    img = img.astype('float32')
+    filter_size = 2*np.ceil(2*sigma) + 1
+    shading = imgaussfilt(img, sigma)
+    mean_val = np.mean(img, axis=(0,1))
+    return np.divide(img*mean_val, shading)
+
+
+def imgaussfilt(img, sigma):
+    """
+    python approximation of Matlab's imgaussfilt
+    """
+    return gaussian_filter(img, sigma, mode='mirror',
+                           truncate=np.ceil(2*sigma/sigma))
+    
+        
 def overlap_tile(img, net, crop_size, pad_size):
     """
     predict segmentation of `img` using the overlap-tile strategy
